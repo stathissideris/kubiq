@@ -1,4 +1,5 @@
 (ns kubiq.util
+  (:refer-clojure :exclude [meta alter-meta!])
   (:require [clojure.string :as str])
   (:import java.util.WeakHashMap))
 

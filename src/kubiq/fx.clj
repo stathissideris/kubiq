@@ -2,12 +2,15 @@
   (:refer-clojure :exclude [parents methods tree-seq])
   (:require [clojure.string :as str]
             [clojure.spec.alpha :as s]
+            [kubiq :as k]
             [kubiq.util :as util]
             [clojure.walk :as walk]
             [hawk.core :as hawk]
-            [me.raynes.fs :as fs])
+            [me.raynes.fs :as fs]
+            [clojure.set :as set])
   (:import [javafx.collections ObservableList ListChangeListener]
            [javafx.scene.control SplitPane TableView ListView]
+           [javafx.scene.layout GridPane]
            [javafx.embed.swing JFXPanel]
            [javafx.application Platform]
            [javafx.stage StageStyle]
@@ -415,6 +418,20 @@
   {:fx/type      :fx/unmanaged
    :fx/component component})
 
+;;;;; Layout ;;;;;
+
+(defmethod fset [GridPane ::k/children]
+  ([gp _ rows]
+   (doall
+    (map-indexed
+     (fn [row-idx row]
+       (doall
+        (map-indexed
+         (fn [col-idx item]
+           (.add gp item col-idx row-idx))
+         row)))
+     rows))))
+
 ;;;;; "React" ;;;;;
 
 (defn- type-change? [diff-group]
@@ -483,12 +500,6 @@
   (children? [this] true)
   (child [this index] (.getRoot this)))
 
-(extend-type javafx.scene.Scene
-  Parent
-  (children [this] [(.getRoot this)])
-  (children? [this] true)
-  (child [this index] (.getRoot this)))
-
 (extend-type javafx.scene.layout.Pane
   Parent
   (children [this]
@@ -525,6 +536,33 @@
   (child [this index]
    (.get (children this) index)))
 
+(extend-type javafx.scene.layout.GridPane
+  Parent
+  (children [this]
+    (.getChildren this))
+  (children? [this]
+    (< 0 (count (children this))))
+  (child [this index]
+   (.get (children this) index)))
+
+(extend-type javafx.scene.control.TabPane
+  Parent
+  (children [this]
+    (.getTabs this))
+  (children? [this]
+    (< 0 (count (children this))))
+  (child [this index]
+   (.get (children this) index)))
+
+(extend-type javafx.scene.control.Tab
+  Parent
+  (children [this]
+    [(.getContent this)])
+  (children? [this]
+    1)
+  (child [this index]
+    (first (children this))))
+
 (extend-type Object
   Parent
   (children [this] nil)
@@ -553,14 +591,17 @@
   (->> (tree-seq root)
        (filter #(get (safe-style-class %) clazz))))
 
-(defn tree [root]
-  (when root
-    (merge
-     {:component root}
-     (when-let [m (not-empty (util/meta root))]
-       {:meta m})
-     (when (children? root)
-       {:children (mapv tree (children root))}))))
+(defn tree
+  ([]
+   (tree top-level))
+  ([root]
+   (when root
+     (merge
+      {:component root}
+      (when-let [m (not-empty (util/meta root))]
+        {:meta m})
+      (when (children? root)
+        {:children (mapv tree (children root))})))))
 
 (defn stage-of [component]
   (some-> component .getScene .getWindow))
@@ -601,8 +642,11 @@
 (defn focus-owner [stage]
   (some-> stage .getScene .focusOwnerProperty .get))
 
-(defn lookup [component selector]
-  (into [] (-> component (.lookupAll selector) .toArray)))
+(defn lookup
+  ([selector]
+   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
+  ([component selector]
+   (into #{} (-> component (.lookupAll selector) .toArray))))
 
 ;;;;;;;;;;;;;;;;;;;; text ;;;;;;;;;;;;;;;;;;;;
 
