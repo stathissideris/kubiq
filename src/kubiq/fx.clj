@@ -51,6 +51,7 @@
            (deliver p (fun))
            (catch Exception e
              (.printStackTrace e)
+             (deliver p e)
              (throw e))))))
     p))
 
@@ -88,15 +89,15 @@
       (fun p))))
 
 (defn parse-bbox [bbox]
-  {:min-x  (.getMinX   bbox)
-   :max-x  (.getMaxX   bbox)
-   :min-z  (.getMinZ   bbox)
-   :width  (.getWidth  bbox)
-   :max-z  (.getMaxZ   bbox)
-   :depth  (.getDepth  bbox)
-   :max-y  (.getMaxY   bbox)
-   :min-y  (.getMinY   bbox)
-   :height (.getHeight bbox)})
+  {::min-x  (.getMinX   bbox)
+   ::max-x  (.getMaxX   bbox)
+   ::min-z  (.getMinZ   bbox)
+   ::width  (.getWidth  bbox)
+   ::max-z  (.getMaxZ   bbox)
+   ::depth  (.getDepth  bbox)
+   ::max-y  (.getMaxY   bbox)
+   ::min-y  (.getMinY   bbox)
+   ::height (.getHeight bbox)})
 
 (defn bounds-in-screen [component]
   (parse-bbox (.localToScreen component (.getBoundsInLocal component))))
@@ -149,18 +150,18 @@
 
 (defmulti fset (fn [o field _] [(class o) field]))
 
-(defmethod fset [Object :fx/setup]
+(defmethod fset [Object ::k/setup]
   [o _ value]
   (value o)
   o)
 
 ;;(def set-focused! (declared-method javafx.scene.Node "setFocused" [Boolean/TYPE]))
-(defmethod fset [Object :fx/focused?]
+(defmethod fset [Object ::k/focused?]
   [o _ focus?]
   (when focus?
     (run-later! #(.requestFocus o))))
 
-(defmethod fset [Object :fx/event-filter]
+(defmethod fset [Object ::k/event-filter]
   [o _ [filter fun]]
   (.addEventFilter o filter (event-handler fun)))
 
@@ -170,7 +171,7 @@
    (str (util/kebab->camel field) "Property")
    (object-array [])))
 
-(defmethod fset [Object :fx/prop-listener]
+(defmethod fset [Object ::k/prop-listener]
   [o _ [prop fun]]
   (.addListener (get-property o prop) (change-listener o fun)))
 
@@ -178,7 +179,7 @@
 (defn set-field! [object field value]
   (when object
     (cond
-      (and (= object :fx/top-level) (= field :children))
+      (and (= object ::k/top-level) (= field ::k/children))
       (StageHelper/getStages)
 
       (integer? field) ;;ObservableList
@@ -187,7 +188,7 @@
       (vector? field)
       (set-field-in! object field value)
 
-      (namespace field)
+      (not= "kubiq.fx" (namespace field))
       (fset object field value)
 
       :else
@@ -239,21 +240,21 @@
                                (run-later!
                                 #(reload-stylesheet! component path)))}])}))
 
-(defmethod fset [Object :fx/stylesheets]
+(defmethod fset [Object ::k/stylesheets]
   [o _ paths]
   (let [paths (map util/resource->external-form paths)]
     (doto o
       (-> .getStylesheets .clear)
       (-> .getStylesheets (.addAll paths))
-      (util/alter-meta! assoc :stylesheets (mapv #(watch-sheet! o %) paths)))))
+      (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
 
-(defmethod fset [WebView :fx/stylesheet]
+(defmethod fset [WebView ::k/stylesheet]
   [o _ path]
   (let [path (util/resource->external-form path)
         wp   (some-> path URI. fs/file .getPath)]
     (-> o .getEngine (.setUserStyleSheetLocation path))
     (util/alter-meta!
-     o assoc :stylesheet
+     o assoc ::k/stylesheet
      {:path         path
       :watcher-path wp
       :watcher      (hawk/watch! [{:paths   [wp]
@@ -265,26 +266,26 @@
 
 (defmulti fget (fn [o field] [(class o) field]))
 
-(defmethod fget [ListView :fx/visible-range]
+(defmethod fget [ListView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 0))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
-(defmethod fget [TableView :fx/visible-range]
+(defmethod fget [TableView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 1))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
 (defn get-field [object field]
-  (cond (and (= object :fx/top-level) (= field :children))
+  (cond (and (= object ::k/top-level) (= field ::k/children))
         (StageHelper/getStages)
 
         (integer? field) ;;ObservableList
         (.get object field)
 
-        (namespace field)
+        (not= "kubiq.fx" (namespace field))
         (fget object field)
 
         :else
@@ -331,7 +332,7 @@
   object)
 
 (defn insert-in! [root path value]
-  (if (and (= root :fx/top-level) (= 2 (count path)))
+  (if (and (= root ::k/top-level) (= 2 (count path)))
     (do
       (.add (StageHelper/getStages) (last path) value)
       (.show value))
@@ -341,7 +342,7 @@
       (.add coll index value))))
 
 (defn remove-in! [root path]
-  (if (and (= root :fx/top-level) (= 2 (count path)))
+  (if (and (= root ::k/top-level) (= 2 (count path)))
     (let [stages (StageHelper/getStages)
           value  (.get stages (last path))]
       (.remove stages value)
@@ -380,43 +381,49 @@
 ;;;;; make ;;;;;
 
 (defn make-args [spec]
-  (vec (second (first (filter #(= (first %) :fx/args) spec)))))
+  (vec (second (first (filter #(= (first %) ::k/args) spec)))))
 
 (defn make-other [spec]
-  (remove #(= (first %) :fx/args) spec))
+  (remove #(= (first %) ::k/args) spec))
 
 (defn make
   ([class-or-instance]
    (make class-or-instance {}))
   ([class-or-instance spec]
-   (cond (= :fx/top-level class-or-instance)
-         :fx/top-level
+   (try
+    (cond (= ::k/top-level class-or-instance)
+          ::k/top-level
 
-         (= :fx/unmanaged class-or-instance)
-         (:fx/component spec)
+          (= ::k/unmanaged class-or-instance)
+          (::k/component spec)
 
-         :else
-         (let [o (if (or (keyword? class-or-instance)
-                         (class? class-or-instance))
-                   (new-instance class-or-instance (make-args spec))
-                   class-or-instance)]
-           (doseq [[field value :as entry] (make-other spec)]
-             (when entry (set-field! o field value)))
-           o))))
+          :else
+          (let [o (if (or (keyword? class-or-instance)
+                          (class? class-or-instance))
+                    (new-instance class-or-instance (make-args spec))
+                    class-or-instance)]
+            (doseq [[field value :as entry] (make-other spec)]
+              (when entry (set-field! o field value)))
+            o))
+    (catch Exception e
+      (throw (ex-info "Error while constructing component"
+                      {:spec    spec
+                       :message (.getMessage e)}
+                      e))))))
 
 (defn make-tree
   [tree]
   (walk/postwalk
    (fn [item]
-     (if (:fx/type item)
-       (make (:fx/type item)
-             (dissoc item :fx/type))
+     (if (::k/type item)
+       (make (::k/type item)
+             (dissoc item ::k/type))
        item))
    tree))
 
 (defn unmanaged [component]
-  {:fx/type      :fx/unmanaged
-   :fx/component component})
+  {::k/type      ::k/unmanaged
+   ::k/component component})
 
 ;;;;; Layout ;;;;;
 
@@ -439,11 +446,11 @@
    (first
     (filter #(and (= :edit (:type %))
                   (= :map (:struct %))
-                  (= :fx/type (last (:path %)))) diff-group))))
+                  (= ::k/type (last (:path %)))) diff-group))))
 
 (defn- ignore-diff? [{:keys [type path] :as diff}]
-  (or (and (= :edit type) (contains? (set path) :fx/setup))
-      (and (= :edit type) (contains? (set path) :fx/args))))
+  (or (and (= :edit type) (contains? (set path) ::k/setup))
+      (and (= :edit type) (contains? (set path) ::k/args))))
 
 ;;(require '[clojure.pprint :refer [pprint]])
 (defn update-tree!
@@ -610,22 +617,22 @@
 
 (defn label
   [text & [spec]]
-  (make :scene.control/label (merge {:text (str text)} spec)))
+  (make :scene.control/label (merge {::text (str text)} spec)))
 
 (defn window [title root]
   (make :stage/stage
-        {:scene (make :scene/scene {:fx/args [root]})}))
+        {::scene (make :scene/scene {::k/args [root]})}))
 
 (defn transparent-window [root]
   (make :stage/stage
-        {:fx/args [StageStyle/TRANSPARENT]
-         :scene (make :scene/scene {:fx/args [root]
-                                    :fill Color/TRANSPARENT})}))
+        {::k/args [StageStyle/TRANSPARENT]
+         ::scene (make :scene/scene {::k/args [root]
+                                     ::fill Color/TRANSPARENT})}))
 
 (defn undecorated-window [root]
   (make :stage/stage
-        {:fx/args [StageStyle/UNDECORATED]
-         :scene (make :scene/scene {:fx/args [root]})}))
+        {::k/args [StageStyle/UNDECORATED]
+         ::scene (make :scene/scene {::k/args [root]})}))
 
 (defn show! [c] (.show c) c)
 
@@ -659,14 +666,14 @@
 
 (extend-type String
   Text
-  (text [this] (make :scene.text/text {:fx/args [this]})))
+  (text [this] (make :scene.text/text {::k/args [this]})))
 
 (let [default-font (Font/getDefault)]
   (def font-defaults
-    {:family  (.getFamily default-font)
-     :weight  FontWeight/NORMAL
-     :posture FontPosture/REGULAR
-     :size    (.getSize default-font)}))
+    {::family  (.getFamily default-font)
+     ::weight  FontWeight/NORMAL
+     ::posture FontPosture/REGULAR
+     ::size    (.getSize default-font)}))
 
 (def font-weight-map
   {"black"       FontWeight/BLACK
@@ -685,8 +692,8 @@
 
 (defn font [{:keys [family weight posture size] :as options}]
   (let [options (cond-> options
-                  weight  (assoc :weight (font-weight-map weight))
-                  posture (assoc :posture (font-posture-map posture)))
+                  weight  (assoc ::weight (font-weight-map weight))
+                  posture (assoc ::posture (font-posture-map posture)))
         {:keys [family weight posture size]}
         (merge font-defaults options)]
     (Font/font family weight posture size)))
@@ -721,10 +728,10 @@
       (let [content (apply str (remove nil? content))]
         (condp = tag
           :span (span attr content)
-          :b    (span {:weight "bold"} content)
-          :i    (span {:posture "italic"} content)
-          :u    (span {:underline true} content)
-          :del  (span {:strike true} content))))))
+          :b    (span {::weight "bold"} content)
+          :i    (span {::posture "italic"} content)
+          :u    (span {::underline true} content)
+          :del  (span {::strike true} content))))))
 
 (defn text-flow
   ([]
@@ -734,7 +741,7 @@
      (TextFlow.)
      (TextFlow. (into-array Node (map text (remove nil? nodes)))))))
 
-(defmethod fset [TextFlow :fx/children]
+(defmethod fset [TextFlow ::k/children]
   [tf _ nodes]
   (-> tf .getChildren (.setAll (mapv text (remove nil? nodes)))))
 
@@ -770,7 +777,7 @@
      (fun event))))
 
 ;;from: http://blogs.kiyut.com/tonny/2013/07/30/javafx-webview-addhyperlinklistener/
-(defmethod fset [WebView :fx/link-listener]
+(defmethod fset [WebView ::k/link-listener]
   [this _ listener]
   (when listener
     (-> this .getEngine .getLoadWorker .stateProperty
@@ -861,8 +868,8 @@
   https://stackoverflow.com/questions/13015698/how-to-calculate-the-pixel-width-of-a-string-in-javafx"
   [component]
   (make-tree
-   {:fx/type :scene/scene
-    :fx/args [component]})
+   {::k/type :scene/scene
+    ::k/args [component]})
   (.applyCss component)
   (.layout component)
   component)
@@ -871,27 +878,27 @@
 (comment
   (make
    :scene.control/button
-   [[:fx/args ["foo"]]
+   [[::k/args ["foo"]]
     [:text "bar"]
-    [:fx/setup #(.setText % "baz")]]))
+    [::k/setup #(.setText % "baz")]]))
 
 (comment
   (make-tree
-   {:fx/type     :scene.control/split-pane
-    :orientation javafx.geometry.Orientation/HORIZONTAL
-    :items       [{:fx/type :scene.control/label
-                   :text    "foo"}
-                  {:fx/type :scene.control/label
-                   :text    "bar"}
-                  {:fx/type :scene.layout/border-pane
-                   :center  {:fx/type :scene.control/label
-                             :text    "baz"}
-                   :bottom  {:fx/type :scene.control/label
-                             :text    "zoo"}}]}))
+   {::k/type      :scene.control/split-pane
+    ::orientation javafx.geometry.Orientation/HORIZONTAL
+    ::items       [{::k/type  :scene.control/label
+                    ::text "foo"}
+                   {::k/type  :scene.control/label
+                    ::text "bar"}
+                   {::k/type :scene.layout/border-pane
+                    ::center {::k/type  :scene.control/label
+                              ::text "baz"}
+                    ::bottom {::k/type  :scene.control/label
+                              ::text "zoo"}}]}))
 
 (comment
   (def s (-> (new-instance :scene.control/split-pane)
              (set-field! :items [(new-instance :scene.control/button ["1"])
                                  (new-instance :scene.control/button ["2"])
                                  (new-instance :scene.control/button ["3"])])))
-  (get-field s :items))
+  (get-field s ::items))
