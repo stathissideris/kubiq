@@ -13,6 +13,7 @@
             [clojure.set :as set])
   (:import [javafx.collections ObservableList ListChangeListener]
            [javafx.scene.control SplitPane TableView ListView]
+           [javafx.scene.text TextFlow]
            [javafx.scene.layout GridPane]
            [javafx.embed.swing JFXPanel]
            [javafx.application Platform]
@@ -114,9 +115,6 @@
 ;;;;; mutation ;;;;;
 ;;;;;;;;;;;;;;;;;;;;
 
-(defn get-field [object field-kw]
-  ((getter (class object) field-kw) object))
-
 (defmulti fset (fn [o field _] [(class o) field]))
 
 (defmethod fset [Object ::k/setup]
@@ -191,51 +189,10 @@
   object)
 
 (defn update-field! [object field fun & args]
-  (let [old-value (get-field object field)]
+  (let [get-field (fn [object field-kw]
+                    ((getter (class object) field-kw) object))
+        old-value (get-field object field)]
     (set-field! object field (apply fun old-value args))))
-
-;;;;;;;;;
-;; CSS ;;
-;;;;;;;;;
-
-(defn- reload-stylesheet! [component path]
-  (doto component
-    (-> .getStylesheets (.remove path))
-    (-> .getStylesheets (.add path))))
-
-(defn- watch-sheet! [component path]
-  (let [wp (some-> path URI. fs/file .getPath)]
-    {:path         path
-     :watcher-path wp
-     :file-watcher
-     (hawk/watch! [{:paths   [wp]
-                    :handler (fn [_ _]
-                               (run-later!
-                                #(reload-stylesheet! component path)))}])}))
-
-(defmethod fset [Object ::k/stylesheets]
-  [o _ paths]
-  (let [paths (map util/resource->external-form paths)]
-    (doto o
-      (-> .getStylesheets .clear)
-      (-> .getStylesheets (.addAll paths))
-      (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
-
-(defmethod fset [WebView ::k/stylesheet]
-  [o _ path]
-  (let [path (util/resource->external-form path)
-        wp   (some-> path URI. fs/file .getPath)]
-    (-> o .getEngine (.setUserStyleSheetLocation path))
-    (util/alter-meta!
-     o assoc ::k/stylesheet
-     {:path         path
-      :watcher-path wp
-      :watcher      (hawk/watch! [{:paths   [wp]
-                                   :handler (fn [_ _]
-                                              (run-later!
-                                               #(doto o
-                                                  (-> .getEngine (.setUserStyleSheetLocation nil))
-                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
 
 ;;;;;;;;;;;;
 ;; access ;;
@@ -404,6 +361,49 @@
   {::k/type      ::k/unmanaged
    ::k/component component})
 
+;;;;;;;;;
+;; CSS ;;
+;;;;;;;;;
+
+(defn- reload-stylesheet! [component path]
+  (doto component
+    (-> .getStylesheets (.remove path))
+    (-> .getStylesheets (.add path))))
+
+(defn- watch-sheet! [component path]
+  (let [wp (some-> path URI. fs/file .getPath)]
+    {:path         path
+     :watcher-path wp
+     :file-watcher
+     (hawk/watch! [{:paths   [wp]
+                    :handler (fn [_ _]
+                               (run-later!
+                                #(reload-stylesheet! component path)))}])}))
+
+(defmethod fset [Object ::k/stylesheets]
+  [o _ paths]
+  (let [paths (map util/resource->external-form paths)]
+    (doto o
+      (-> .getStylesheets .clear)
+      (-> .getStylesheets (.addAll paths))
+      (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
+
+(defmethod fset [WebView ::k/stylesheet]
+  [o _ path]
+  (let [path (util/resource->external-form path)
+        wp   (some-> path URI. fs/file .getPath)]
+    (-> o .getEngine (.setUserStyleSheetLocation path))
+    (util/alter-meta!
+     o assoc ::k/stylesheet
+     {:path         path
+      :watcher-path wp
+      :watcher      (hawk/watch! [{:paths   [wp]
+                                   :handler (fn [_ _]
+                                              (run-later!
+                                               #(doto o
+                                                  (-> .getEngine (.setUserStyleSheetLocation nil))
+                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
+
 ;;;;;;;;;;;;;;;;;;
 ;;;;; Layout ;;;;;
 ;;;;;;;;;;;;;;;;;;
@@ -463,7 +463,6 @@
 ;;;;;;;;;;;;;;;;;;;;;
 ;;;;; traversal ;;;;;
 ;;;;;;;;;;;;;;;;;;;;;
-
 
 (def top-level (kubiq.traversal_impl.TopLevel.))
 
@@ -559,13 +558,13 @@
 ;;;;;;;;;;;;;;;;
 
 (extend-type String
-  Text
+  text/Text
   (text [this] (make {::k/type :scene.text/text
                       ::k/args [this]})))
 
 (defmethod fset [TextFlow ::k/children]
   [tf _ nodes]
-  (-> tf .getChildren (.setAll (mapv text (remove nil? nodes)))))
+  (-> tf .getChildren (.setAll (mapv text/text (remove nil? nodes)))))
 
 (def font text/font)
 (def span text/span)
