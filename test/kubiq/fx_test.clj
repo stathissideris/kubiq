@@ -7,22 +7,22 @@
 (init)
 
 (deftest simple-make
-  (is (= "foo" (get-field (make-tree {::k/type :scene.control/label
-                                      ::fx/text "foo"})
+  (is (= "foo" (get-field (make {::k/type :scene.control/label
+                                 ::fx/text "foo"})
                           ::fx/text))))
 
 (deftest parents-test
   (let [foo (label "foo")
-        c   (make
+        c   (make-component
              :scene.layout/border-pane
              {::fx/id     "a"
-              ::fx/center (make
+              ::fx/center (make-component
                            :scene.layout/border-pane
                            {::fx/id     "b"
-                            ::fx/center (make
+                            ::fx/center (make-component
                                          :scene.layout/border-pane
                                          {::fx/id     "c"
-                                          ::fx/center (make
+                                          ::fx/center (make-component
                                                        :scene.layout/border-pane
                                                        {::fx/id     "d"
                                                         ::fx/center foo})})})})]
@@ -31,32 +31,32 @@
 (deftest get-field-in-test
   (testing "simple"
     (let [foo (label "foo")
-          c   (make
+          c   (make-component
                :scene.layout/border-pane
                {::fx/id     "a"
-                ::fx/center (make
+                ::fx/center (make-component
                              :scene.layout/border-pane
                              {::fx/id     "b"
-                              ::fx/center (make
+                              ::fx/center (make-component
                                            :scene.layout/border-pane
                                            {::fx/id     "c"
-                                            ::fx/center (make
+                                            ::fx/center (make-component
                                                          :scene.layout/border-pane
                                                          {::fx/id     "d"
                                                           ::fx/center foo})})})})]
       (is (= "foo" (get-field-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
   (testing "with indexes"
     (let [foo (label "foo")
-          c   (make
+          c   (make-component
                :scene.control/split-pane
                {::fx/items
-                [(make
+                [(make-component
                   :scene.control/split-pane
                   {::fx/items
-                   [(make
+                   [(make-component
                      :scene.control/split-pane
                      {::fx/items
-                      [(make
+                      [(make-component
                         :scene.control/split-pane
                         {::fx/items
                          [foo]})]})]})]})]
@@ -68,16 +68,16 @@
 
 (deftest set-field-in!-test
   (let [foo (label "foo")
-        c   (make
+        c   (make-component
              :scene.layout/border-pane
              {::fx/id     "a"
-              ::fx/center (make
+              ::fx/center (make-component
                            :scene.layout/border-pane
                            {::fx/id     "b"
-                            ::fx/center (make
+                            ::fx/center (make-component
                                          :scene.layout/border-pane
                                          {::fx/id     "c"
-                                          ::fx/center (make
+                                          ::fx/center (make-component
                                                        :scene.layout/border-pane
                                                        {::fx/id     "d"
                                                         ::fx/center foo})})})})]
@@ -85,9 +85,10 @@
     (is (= "bar" (get-field-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
 
 (deftest has-style-class?-test
-  (let [c (make :scene.control/label
-                {::fx/style-class ["foo" "bar"]
-                 ::fx/text    "test"})]
+  (let [c (make
+           {::k/type         :scene.control/label
+            ::fx/style-class ["foo" "bar"]
+            ::fx/text        "test"})]
     (is (true? (has-style-class? c "foo")))
     (is (true? (has-style-class? c "bar")))
     (is (false? (has-style-class? c "baz")))))
@@ -108,7 +109,7 @@
 
 (deftest one-off-change-listener-test
   (let [log    (atom [])
-        button (make :scene.control/button {::fx/text "foo"})]
+        button (make-component :scene.control/button {::fx/text "foo"})]
     (-> button .textProperty (.addListener (one-off-change-listener (fn [_ _ _] (swap! log conj "called")))))
     (is (= [] @log))
 

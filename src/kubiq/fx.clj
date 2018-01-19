@@ -380,15 +380,15 @@
 
 ;;;;; make ;;;;;
 
-(defn make-args [spec]
+(defn- make-args [spec]
   (vec (second (first (filter #(= (first %) ::k/args) spec)))))
 
-(defn make-other [spec]
+(defn- make-other [spec]
   (remove #(= (first %) ::k/args) spec))
 
-(defn make
+(defn make-component
   ([class-or-instance]
-   (make class-or-instance {}))
+   (make-component class-or-instance {}))
   ([class-or-instance spec]
    (try
     (cond (= ::k/top-level class-or-instance)
@@ -411,13 +411,13 @@
                        :message (.getMessage e)}
                       e))))))
 
-(defn make-tree
+(defn make
   [tree]
   (walk/postwalk
    (fn [item]
      (if (::k/type item)
-       (make (::k/type item)
-             (dissoc item ::k/type))
+       (make-component (::k/type item)
+                       (dissoc item ::k/type))
        item))
    tree))
 
@@ -463,18 +463,18 @@
         (run-later!
          #(set-field-in! root
                          (-> diff-group first :path butlast)
-                         (make-tree (->> diff-group
-                                         (filter (comp #{:edit :assoc} :type))
-                                         (map (juxt (comp last :path) :value))
-                                         (into {})))))
+                         (make-component (->> diff-group
+                                              (filter (comp #{:edit :assoc} :type))
+                                              (map (juxt (comp last :path) :value))
+                                              (into {})))))
         :else
         (doseq [{:keys [type path value] :as diff} (remove ignore-diff? diff-group)]
           (run-later!
            #(condp = type
-              :edit   (set-field-in! root path (make-tree value))
-              :assoc  (set-field-in! root path (make-tree value))
+              :edit   (set-field-in! root path (make value))
+              :assoc  (set-field-in! root path (make value))
               :dissoc (set-field-in! root path nil)
-              :insert (insert-in! root path (make-tree value))
+              :insert (insert-in! root path (make value))
               :delete (remove-in! root path))))))))
 
 ;;;;; traversal ;;;;;
@@ -617,22 +617,28 @@
 
 (defn label
   [text & [spec]]
-  (make :scene.control/label (merge {::text (str text)} spec)))
+  (make
+   (merge {::k/type :scene.control/label
+           ::text   (str text)}
+          spec)))
 
 (defn window [title root]
-  (make :stage/stage
-        {::scene (make :scene/scene {::k/args [root]})}))
+  (make {::k/type :stage/stage
+         ::scene {::k/type :scene/scene
+                  ::k/args [root]}}))
 
 (defn transparent-window [root]
-  (make :stage/stage
-        {::k/args [StageStyle/TRANSPARENT]
-         ::scene (make :scene/scene {::k/args [root]
-                                     ::fill Color/TRANSPARENT})}))
+  (make {::k/type :stage/stage
+         ::k/args [StageStyle/TRANSPARENT]
+         ::scene  {::k/type :scene/scene
+                   ::k/args [root]
+                   ::fill   Color/TRANSPARENT}}))
 
 (defn undecorated-window [root]
-  (make :stage/stage
-        {::k/args [StageStyle/UNDECORATED]
-         ::scene (make :scene/scene {::k/args [root]})}))
+  (make {::k/type :stage/stage
+         ::k/args [StageStyle/UNDECORATED]
+         ::scene  {::k/type :scene/scene
+                   ::k/args [root]}}))
 
 (defn show! [c] (.show c) c)
 
@@ -666,7 +672,8 @@
 
 (extend-type String
   Text
-  (text [this] (make :scene.text/text {::k/args [this]})))
+  (text [this] (make {::k/type :scene.text/text
+                      ::k/args [this]})))
 
 (let [default-font (Font/getDefault)]
   (def font-defaults
@@ -867,7 +874,7 @@
 
   https://stackoverflow.com/questions/13015698/how-to-calculate-the-pixel-width-of-a-string-in-javafx"
   [component]
-  (make-tree
+  (make
    {::k/type :scene/scene
     ::k/args [component]})
   (.applyCss component)
@@ -876,14 +883,14 @@
 
 
 (comment
-  (make
+  (make-component
    :scene.control/button
    [[::k/args ["foo"]]
     [:text "bar"]
     [::k/setup #(.setText % "baz")]]))
 
 (comment
-  (make-tree
+  (make
    {::k/type      :scene.control/split-pane
     ::orientation javafx.geometry.Orientation/HORIZONTAL
     ::items       [{::k/type  :scene.control/label
