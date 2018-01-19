@@ -115,6 +115,12 @@
 ;;;;; mutation ;;;;;
 ;;;;;;;;;;;;;;;;;;;;
 
+(defn lookup
+  ([selector]
+   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
+  ([component selector]
+   (into #{} (-> component (.lookupAll selector) .toArray))))
+
 (defmulti set-field! (fn [o field _] [(class o) field]))
 
 (defmethod set-field! [Object ::k/setup]
@@ -147,6 +153,10 @@
     (cond
       (and (= object ::k/top-level) (= field ::k/children))
       (StageHelper/getStages)
+
+      (string? object)
+      (let [objs (lookup object)]
+        (fset! (first objs) field value))
 
       (integer? field) ;;ObservableList
       (.set object field value)
@@ -214,6 +224,10 @@
 (defn fget [object field]
   (cond (and (= object ::k/top-level) (= field ::k/children))
         (StageHelper/getStages)
+
+        (string? object)
+        (let [objs (lookup object)]
+          (fget (first objs) field))
 
         (integer? field) ;;ObservableList
         (.get object field)
@@ -545,12 +559,6 @@
 
 (defn focus-owner [stage]
   (some-> stage .getScene .focusOwnerProperty .get))
-
-(defn lookup
-  ([selector]
-   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
-  ([component selector]
-   (into #{} (-> component (.lookupAll selector) .toArray))))
 
 ;;;;;;;;;;;;;;;;
 ;;;;; text ;;;;;
