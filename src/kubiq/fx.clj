@@ -4,6 +4,9 @@
             [clojure.spec.alpha :as s]
             [kubiq :as k]
             [kubiq.util :as util]
+            [kubiq.reflection :refer [superclasses methods getter-method getter setter-method setter]]
+            [kubiq.traversal-impl :as traversal]
+            [kubiq.text-impl :as text]
             [clojure.walk :as walk]
             [hawk.core :as hawk]
             [me.raynes.fs :as fs]
@@ -22,7 +25,6 @@
            [javafx.concurrent Worker]
            [com.sun.javafx.stage StageHelper]
            [javafx.util Callback]
-           [javafx.scene.text Font FontWeight FontPosture TextAlignment TextFlow]
            [javafx.scene.web WebView]
            [java.net URI]
            [org.w3c.dom.events EventListener]
@@ -108,42 +110,9 @@
 (defn bounds-in-parent [component]
   (parse-bbox (.getBoundsInParent component)))
 
-;;;;; reflection ;;;;;
-
-(defn- superclasses [clazz]
-  (when-let [super (.getSuperclass clazz)]
-    (cons super (lazy-seq (superclasses super)))))
-
-(defn- methods [^Class class]
-  (.getMethods class))
-
-(defn- getter-method [clazz field-kw]
-  (let [method-name (->> (util/kebab->camel field-kw)
-                         util/capitalize-first
-                         (str "get"))]
-    (first (filter #(= (.getName %) method-name) (mapcat methods (cons clazz (superclasses clazz)))))))
-
-(defn- getter [clazz field-kw]
-  (when-let [getter (getter-method clazz field-kw)]
-    (fn [object] (.invoke getter object (object-array [])))))
-
-(defn- setter-method [clazz field-kw]
-  (let [method-name (->> (util/kebab->camel field-kw)
-                         util/capitalize-first
-                         (str "set"))]
-    (first (filter #(= (.getName %) method-name) (mapcat methods (cons clazz (superclasses clazz)))))))
-
-(defn- setter [clazz field-kw]
-  (if-let [setter (setter-method clazz field-kw)]
-    (fn [object value]
-      (.invoke setter object (object-array [value]))
-      object)
-    (when-let [getter-method (getter-method clazz field-kw)]
-      (when (= ObservableList (.getReturnType getter-method)) ;;support for setting observable list fields
-        (let [getter (getter clazz field-kw)]
-          (fn [object value]
-            (.setAll (getter object) (remove nil? value))
-            object))))))
+;;;;;;;;;;;;;;;;;;;;
+;;;;; mutation ;;;;;
+;;;;;;;;;;;;;;;;;;;;
 
 (defn get-field [object field-kw]
   ((getter (class object) field-kw) object))
@@ -225,6 +194,10 @@
   (let [old-value (get-field object field)]
     (set-field! object field (apply fun old-value args))))
 
+;;;;;;;;;
+;; CSS ;;
+;;;;;;;;;
+
 (defn- reload-stylesheet! [component path]
   (doto component
     (-> .getStylesheets (.remove path))
@@ -263,6 +236,10 @@
                                                #(doto o
                                                   (-> .getEngine (.setUserStyleSheetLocation nil))
                                                   (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
+
+;;;;;;;;;;;;
+;; access ;;
+;;;;;;;;;;;;
 
 (defmulti fget (fn [o field] [(class o) field]))
 
@@ -378,7 +355,9 @@
                         :args  args}
                        e))))))
 
+;;;;;;;;;;;;;;;;
 ;;;;; make ;;;;;
+;;;;;;;;;;;;;;;;
 
 (defn- make-args [spec]
   (vec (second (first (filter #(= (first %) ::k/args) spec)))))
@@ -425,7 +404,9 @@
   {::k/type      ::k/unmanaged
    ::k/component component})
 
+;;;;;;;;;;;;;;;;;;
 ;;;;; Layout ;;;;;
+;;;;;;;;;;;;;;;;;;
 
 (defmethod fset [GridPane ::k/children]
   ([gp _ rows]
@@ -439,7 +420,9 @@
          row)))
      rows))))
 
+;;;;;;;;;;;;;;;;;;;
 ;;;;; "React" ;;;;;
+;;;;;;;;;;;;;;;;;;;
 
 (defn- type-change? [diff-group]
   (some?
@@ -477,110 +460,18 @@
               :insert (insert-in! root path (make value))
               :delete (remove-in! root path))))))))
 
+;;;;;;;;;;;;;;;;;;;;;
 ;;;;; traversal ;;;;;
+;;;;;;;;;;;;;;;;;;;;;
 
-(defprotocol Parent
-  (children? [this])
-  (children [this])
-  (child [this index]))
 
-(deftype TopLevel []
-  Parent
-  (children [this]
-    (distinct (seq (StageHelper/getStages))))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-    (.get (children this) index)))
-
-(def top-level (TopLevel.))
-
-(extend-type javafx.stage.Stage
-  Parent
-  (children [this] [(.getScene this)])
-  (children? [this] true)
-  (child [this index] (.getScene this)))
-
-(extend-type javafx.scene.Scene
-  Parent
-  (children [this] [(.getRoot this)])
-  (children? [this] true)
-  (child [this index] (.getRoot this)))
-
-(extend-type javafx.scene.layout.Pane
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.SplitPane
-  Parent
-  (children [this]
-    (.getItems this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-    (.get (children this) index)))
-
-(extend-type javafx.scene.control.ScrollPane
-  Parent
-  (children [this]
-    [(.getContent this)])
-  (children? [this]
-    true)
-  (child [this index]
-    (.getContent this)))
-
-(extend-type javafx.scene.Group
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.layout.GridPane
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.TabPane
-  Parent
-  (children [this]
-    (.getTabs this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.Tab
-  Parent
-  (children [this]
-    [(.getContent this)])
-  (children? [this]
-    1)
-  (child [this index]
-    (first (children this))))
-
-(extend-type Object
-  Parent
-  (children [this] nil)
-  (children? [this] false)
-  (child [this index] nil))
+(def top-level (kubiq.traversal_impl.TopLevel.))
 
 (defn- safe-id [component]
   (try (.getId component) (catch Exception _ nil)))
 
 (defn tree-seq [root]
-  (clojure.core/tree-seq children? children root))
+  (clojure.core/tree-seq traversal/children? traversal/children root))
 
 (defn find-by-id
   ([id]
@@ -607,13 +498,15 @@
       {:component root}
       (when-let [m (not-empty (util/meta root))]
         {:meta m})
-      (when (children? root)
-        {:children (mapv tree (children root))})))))
+      (when (traversal/children? root)
+        {:children (mapv tree (traversal/children root))})))))
 
 (defn stage-of [component]
   (some-> component .getScene .getWindow))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; convenience functions ;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn label
   [text & [spec]]
@@ -661,96 +554,22 @@
   ([component selector]
    (into #{} (-> component (.lookupAll selector) .toArray))))
 
-;;;;;;;;;;;;;;;;;;;; text ;;;;;;;;;;;;;;;;;;;;
-
-(defprotocol Text
-  (text [this]))
-
-(extend-type javafx.scene.text.Text
-  Text
-  (text [this] this))
+;;;;;;;;;;;;;;;;
+;;;;; text ;;;;;
+;;;;;;;;;;;;;;;;
 
 (extend-type String
   Text
   (text [this] (make {::k/type :scene.text/text
                       ::k/args [this]})))
 
-(let [default-font (Font/getDefault)]
-  (def font-defaults
-    {::family  (.getFamily default-font)
-     ::weight  FontWeight/NORMAL
-     ::posture FontPosture/REGULAR
-     ::size    (.getSize default-font)}))
-
-(def font-weight-map
-  {"black"       FontWeight/BLACK
-   "bold"        FontWeight/BOLD
-   "extra-bold"  FontWeight/EXTRA_BOLD
-   "extra-light" FontWeight/EXTRA_LIGHT
-   "light"       FontWeight/LIGHT
-   "medium"      FontWeight/MEDIUM
-   "normal"      FontWeight/NORMAL
-   "semi-bold"   FontWeight/SEMI_BOLD
-   "thin"        FontWeight/THIN})
-
-(def font-posture-map
-  {"italic"  FontPosture/ITALIC
-   "regular" FontPosture/REGULAR})
-
-(defn font [{:keys [family weight posture size] :as options}]
-  (let [options (cond-> options
-                  weight  (assoc ::weight (font-weight-map weight))
-                  posture (assoc ::posture (font-posture-map posture)))
-        {:keys [family weight posture size]}
-        (merge font-defaults options)]
-    (Font/font family weight posture size)))
-
-(def text-alignment-map
-  {:center  TextAlignment/CENTER
-   :justify TextAlignment/JUSTIFY
-   :left    TextAlignment/LEFT
-   :right   TextAlignment/RIGHT})
-
-(defn span [{:keys [underline strike align fill] :as attr} content]
-  (let [font-attr (not-empty (select-keys attr [:family :weight :posture :size]))
-        f         (when font-attr (font font-attr))
-        text
-        (doto (javafx.scene.text.Text. content)
-          (.setUnderline (or underline false))
-          (.setStrikethrough (or strike false))
-          (.setTextAlignment (text-alignment-map (or align :left))))]
-    (when f (.setFont text f))
-    (when fill
-      (.setFill text fill))
-    text))
-
-(extend-type clojure.lang.APersistentVector
-  Text
-  (text [this]
-    (let [tag     (first this)
-          attr    (when (map? (second this)) (second this))
-          content (if attr (drop 2 this) (rest this))]
-      (when (not (every? (some-fn nil? string?) content))
-        (throw (ex-info "text hiccup tags cannot be nested" {:tag this})))
-      (let [content (apply str (remove nil? content))]
-        (condp = tag
-          :span (span attr content)
-          :b    (span {::weight "bold"} content)
-          :i    (span {::posture "italic"} content)
-          :u    (span {::underline true} content)
-          :del  (span {::strike true} content))))))
-
-(defn text-flow
-  ([]
-   (TextFlow.))
-  ([nodes]
-   (if (empty? nodes)
-     (TextFlow.)
-     (TextFlow. (into-array Node (map text (remove nil? nodes)))))))
-
 (defmethod fset [TextFlow ::k/children]
   [tf _ nodes]
   (-> tf .getChildren (.setAll (mapv text (remove nil? nodes)))))
+
+(def font text/font)
+(def span text/span)
+(def text-flow text/text-flow)
 
 ;;;;;;;;;;;;;;;;;;;; color ;;;;;;;;;;;;;;;;;;;;
 
