@@ -7,9 +7,9 @@
 (init)
 
 (deftest simple-make
-  (is (= "foo" (get-field (make {::k/type :scene.control/label
-                                 ::fx/text "foo"})
-                          ::fx/text))))
+  (is (= "foo" (fget (make {::k/type :scene.control/label
+                            ::fx/text "foo"})
+                     ::fx/text))))
 
 (deftest parents-test
   (let [foo (label "foo")
@@ -44,7 +44,7 @@
                                                          :scene.layout/border-pane
                                                          {::fx/id     "d"
                                                           ::fx/center foo})})})})]
-      (is (= "foo" (get-field-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
+      (is (= "foo" (fget-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
   (testing "with indexes"
     (let [foo (label "foo")
           c   (make-component
@@ -60,11 +60,11 @@
                         :scene.control/split-pane
                         {::fx/items
                          [foo]})]})]})]})]
-      (is (= "foo" (get-field-in c [::fx/items 0
-                                    ::fx/items 0
-                                    ::fx/items 0
-                                    ::fx/items 0
-                                    ::fx/text]))))))
+      (is (= "foo" (fget-in c [::fx/items 0
+                               ::fx/items 0
+                               ::fx/items 0
+                               ::fx/items 0
+                               ::fx/text]))))))
 
 (deftest set-field-in!-test
   (let [foo (label "foo")
@@ -81,8 +81,8 @@
                                                        :scene.layout/border-pane
                                                        {::fx/id     "d"
                                                         ::fx/center foo})})})})]
-    (set-field-in! c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text] "bar")
-    (is (= "bar" (get-field-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
+    (fset-in! c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text] "bar")
+    (is (= "bar" (fget-in c [::fx/center ::fx/center ::fx/center ::fx/center ::fx/text])))))
 
 (deftest has-style-class?-test
   (let [c (make

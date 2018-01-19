@@ -115,20 +115,19 @@
 ;;;;; mutation ;;;;;
 ;;;;;;;;;;;;;;;;;;;;
 
-(defmulti fset (fn [o field _] [(class o) field]))
+(defmulti set-field! (fn [o field _] [(class o) field]))
 
-(defmethod fset [Object ::k/setup]
+(defmethod set-field! [Object ::k/setup]
   [o _ value]
   (value o)
   o)
 
-;;(def set-focused! (declared-method javafx.scene.Node "setFocused" [Boolean/TYPE]))
-(defmethod fset [Object ::k/focused?]
+(defmethod set-field! [Object ::k/focused?]
   [o _ focus?]
   (when focus?
     (run-later! #(.requestFocus o))))
 
-(defmethod fset [Object ::k/event-filter]
+(defmethod set-field! [Object ::k/event-filter]
   [o _ [filter fun]]
   (.addEventFilter o filter (event-handler fun)))
 
@@ -138,12 +137,12 @@
    (str (util/kebab->camel field) "Property")
    (object-array [])))
 
-(defmethod fset [Object ::k/prop-listener]
+(defmethod set-field! [Object ::k/prop-listener]
   [o _ [prop fun]]
   (.addListener (get-property o prop) (change-listener o fun)))
 
-(declare set-field-in!)
-(defn set-field! [object field value]
+(declare fset-in!)
+(defn fset! [object field value]
   (when object
     (cond
       (and (= object ::k/top-level) (= field ::k/children))
@@ -153,10 +152,10 @@
       (.set object field value)
 
       (vector? field)
-      (set-field-in! object field value)
+      (fset-in! object field value)
 
       (not= "kubiq.fx" (namespace field))
-      (fset object field value)
+      (set-field! object field value)
 
       :else
       (try
@@ -188,31 +187,31 @@
                                   e))))))))))
   object)
 
-(defn update-field! [object field fun & args]
+(defn update! [object field fun & args]
   (let [get-field (fn [object field-kw]
                     ((getter (class object) field-kw) object))
         old-value (get-field object field)]
-    (set-field! object field (apply fun old-value args))))
+    (fset! object field (apply fun old-value args))))
 
 ;;;;;;;;;;;;
 ;; access ;;
 ;;;;;;;;;;;;
 
-(defmulti fget (fn [o field] [(class o) field]))
+(defmulti get-field (fn [o field] [(class o) field]))
 
-(defmethod fget [ListView ::k/visible-range]
+(defmethod get-field [ListView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 0))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
-(defmethod fget [TableView ::k/visible-range]
+(defmethod get-field [TableView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 1))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
-(defn get-field [object field]
+(defn fget [object field]
   (cond (and (= object ::k/top-level) (= field ::k/children))
         (StageHelper/getStages)
 
@@ -220,7 +219,7 @@
         (.get object field)
 
         (not= "kubiq.fx" (namespace field))
-        (fget object field)
+        (get-field object field)
 
         :else
         (clojure.lang.Reflector/invokeInstanceMethod
@@ -232,27 +231,27 @@
          (object-array []))))
 
 ;;(s/def ::path (s/coll-of (s/or :field-name keyword? :index nat-int?)))
-(defn get-field-in [root path]
+(defn fget-in [root path]
   (reduce (fn [o field]
             (try
-              (get-field o field)
+              (fget o field)
               (catch Exception e
-                (throw (ex-info "get-field-in failed"
+                (throw (ex-info "fget-in failed"
                                 {:path           path
                                  :root           root
                                  :current-object o
                                  :current-field  field}
                                 e))))) root path))
-(s/fdef get-field-in
+(s/fdef fget-in
   :args (s/cat :root some? :path ::path))
 
-(defn set-field-in! [root path value]
+(defn fset-in! [root path value]
   (let [field       (last path)
         parent-path (butlast path)]
     (try
-      (set-field! (get-field-in root parent-path) field value)
+      (fset! (fget-in root parent-path) field value)
       (catch Exception e
-        (throw (ex-info "set-field-in! failed"
+        (throw (ex-info "fset-in! failed"
                         {:path  path
                          :value value
                          :root  root}
@@ -262,7 +261,7 @@
 
 (defn set-fields! [object pairs]
   (doseq [[field value] pairs]
-    (set-field! object field value))
+    (fset! object field value))
   object)
 
 (defn insert-in! [root path value]
@@ -272,7 +271,7 @@
       (.show value))
     (let [index       (last path)
           parent-path (butlast path)
-          coll        (get-field-in root parent-path)]
+          coll        (fget-in root parent-path)]
       (.add coll index value))))
 
 (defn remove-in! [root path]
@@ -283,7 +282,7 @@
       (.close value))
     (let [index       (last path)
           parent-path (butlast path)
-          coll        (get-field-in root parent-path)
+          coll        (fget-in root parent-path)
           item        (.get coll index)]
       (.remove coll item)))) ;;removing by index does not work
 
@@ -339,7 +338,7 @@
                     (new-instance class-or-instance (make-args spec))
                     class-or-instance)]
             (doseq [[field value :as entry] (make-other spec)]
-              (when entry (set-field! o field value)))
+              (when entry (fset! o field value)))
             o))
     (catch Exception e
       (throw (ex-info "Error while constructing component"
@@ -380,7 +379,7 @@
                                (run-later!
                                 #(reload-stylesheet! component path)))}])}))
 
-(defmethod fset [Object ::k/stylesheets]
+(defmethod set-field! [Object ::k/stylesheets]
   [o _ paths]
   (let [paths (map util/resource->external-form paths)]
     (doto o
@@ -388,7 +387,7 @@
       (-> .getStylesheets (.addAll paths))
       (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
 
-(defmethod fset [WebView ::k/stylesheet]
+(defmethod set-field! [WebView ::k/stylesheet]
   [o _ path]
   (let [path (util/resource->external-form path)
         wp   (some-> path URI. fs/file .getPath)]
@@ -408,7 +407,7 @@
 ;;;;; Layout ;;;;;
 ;;;;;;;;;;;;;;;;;;
 
-(defmethod fset [GridPane ::k/children]
+(defmethod set-field! [GridPane ::k/children]
   ([gp _ rows]
    (doall
     (map-indexed
@@ -444,7 +443,7 @@
       (cond
         (type-change? diff-group)
         (run-later!
-         #(set-field-in! root
+         #(fset-in! root
                          (-> diff-group first :path butlast)
                          (make-component (->> diff-group
                                               (filter (comp #{:edit :assoc} :type))
@@ -454,9 +453,9 @@
         (doseq [{:keys [type path value] :as diff} (remove ignore-diff? diff-group)]
           (run-later!
            #(condp = type
-              :edit   (set-field-in! root path (make value))
-              :assoc  (set-field-in! root path (make value))
-              :dissoc (set-field-in! root path nil)
+              :edit   (fset-in! root path (make value))
+              :assoc  (fset-in! root path (make value))
+              :dissoc (fset-in! root path nil)
               :insert (insert-in! root path (make value))
               :delete (remove-in! root path))))))))
 
@@ -562,7 +561,7 @@
   (text [this] (make {::k/type :scene.text/text
                       ::k/args [this]})))
 
-(defmethod fset [TextFlow ::k/children]
+(defmethod set-field! [TextFlow ::k/children]
   [tf _ nodes]
   (-> tf .getChildren (.setAll (mapv text/text (remove nil? nodes)))))
 
@@ -602,7 +601,7 @@
      (fun event))))
 
 ;;from: http://blogs.kiyut.com/tonny/2013/07/30/javafx-webview-addhyperlinklistener/
-(defmethod fset [WebView ::k/link-listener]
+(defmethod set-field! [WebView ::k/link-listener]
   [this _ listener]
   (when listener
     (-> this .getEngine .getLoadWorker .stateProperty
@@ -636,12 +635,12 @@
 ;;;;;;;;;;;;;;;;;;;; text-areas ;;;;;;;;;;;;;;;;;;;;
 
 (defn insert-text! [text-field text]
-  (let [pos      (get-field text-field :caret-position)
-        old-text (get-field text-field :text)]
-    (set-field! text-field
-                :text (str (subs old-text 0 pos)
-                           text
-                           (subs old-text pos)))
+  (let [pos      (fget text-field :caret-position)
+        old-text (fget text-field :text)]
+    (fset! text-field
+           :text (str (subs old-text 0 pos)
+                      text
+                      (subs old-text pos)))
     (.positionCaret text-field (+ pos (count text)))))
 
 (defn caret-left
@@ -726,4 +725,4 @@
              (set-field! :items [(new-instance :scene.control/button ["1"])
                                  (new-instance :scene.control/button ["2"])
                                  (new-instance :scene.control/button ["3"])])))
-  (get-field s ::items))
+  (fget s ::items))
