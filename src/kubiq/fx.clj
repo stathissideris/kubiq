@@ -197,12 +197,6 @@
                                   e))))))))))
   object)
 
-(defn update! [object field fun & args]
-  (let [get-field (fn [object field-kw]
-                    ((getter (class object) field-kw) object))
-        old-value (get-field object field)]
-    (fset! object field (apply fun old-value args))))
-
 ;;;;;;;;;;;;
 ;; access ;;
 ;;;;;;;;;;;;
@@ -272,6 +266,10 @@
                         e))))))
 ;; (s/fdef set-field-in!
 ;;   :args (s/cat :root some? :path ::path :value any?))
+
+(defn update! [object field fun & args]
+  (let [old-value (fget object field)]
+    (fset! object field (apply fun old-value args))))
 
 (defn set-fields! [object pairs]
   (doseq [[field value] pairs]
