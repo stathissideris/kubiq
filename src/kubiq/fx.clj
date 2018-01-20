@@ -121,23 +121,21 @@
   ([component selector]
    (into #{} (-> component (.lookupAll selector) .toArray))))
 
-(defmulti set-field! (fn [o field v] [(class o) field (class v)]))
+(defmulti set-field! (fn [o field _] [(class o) field]))
 
-(defmethod set-field! [Object ::k/setup Object]
+(defmethod set-field! [Object ::k/setup]
   [o _ value]
   (value o)
   o)
 
-(defmethod set-field! [Object ::k/focused? Boolean]
+(defmethod set-field! [Object ::k/focused?]
   [o _ focus?]
   (when focus?
-    (run-later! #(.requestFocus o)))
-  o)
+    (run-later! #(.requestFocus o))))
 
-(defmethod set-field! [Object ::k/event-filter Object]
+(defmethod set-field! [Object ::k/event-filter]
   [o _ [filter fun]]
-  (.addEventFilter o filter (event-handler fun))
-  o)
+  (.addEventFilter o filter (event-handler fun)))
 
 (defn get-property [object field]
   (clojure.lang.Reflector/invokeInstanceMethod
@@ -145,10 +143,9 @@
    (str (util/kebab->camel field) "Property")
    (object-array [])))
 
-(defmethod set-field! [Object ::k/prop-listener Object]
+(defmethod set-field! [Object ::k/prop-listener]
   [o _ [prop fun]]
-  (.addListener (get-property o prop) (change-listener o fun))
-  o)
+  (.addListener (get-property o prop) (change-listener o fun)))
 
 (declare fset-in!)
 (defn fset! [object field value]
@@ -394,7 +391,7 @@
                                (run-later!
                                 #(reload-stylesheet! component path)))}])}))
 
-(defmethod set-field! [Object ::k/stylesheets Object]
+(defmethod set-field! [Object ::k/stylesheets]
   [o _ paths]
   (let [paths (map util/resource->external-form paths)]
     (doto o
@@ -402,7 +399,7 @@
       (-> .getStylesheets (.addAll paths))
       (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
 
-(defmethod set-field! [WebView ::k/stylesheet Object]
+(defmethod set-field! [WebView ::k/stylesheet]
   [o _ path]
   (let [path (util/resource->external-form path)
         wp   (some-> path URI. fs/file .getPath)]
@@ -416,14 +413,13 @@
                                               (run-later!
                                                #(doto o
                                                   (-> .getEngine (.setUserStyleSheetLocation nil))
-                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})
-    o))
+                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
 
 ;;;;;;;;;;;;;;;;;;
 ;;;;; Layout ;;;;;
 ;;;;;;;;;;;;;;;;;;
 
-(defmethod set-field! [GridPane ::k/children Object]
+(defmethod set-field! [GridPane ::k/children]
   ([gp _ rows]
    (doall
     (map-indexed
@@ -433,8 +429,7 @@
          (fn [col-idx item]
            (.add gp item col-idx row-idx))
          row)))
-     rows))
-   gp))
+     rows))))
 
 ;;;;;;;;;;;;;;;;;;;
 ;;;;; "React" ;;;;;
@@ -572,10 +567,9 @@
   (text [this] (make {::k/type :scene.text/text
                       ::k/args [this]})))
 
-(defmethod set-field! [TextFlow ::k/children Object]
+(defmethod set-field! [TextFlow ::k/children]
   [tf _ nodes]
-  (-> tf .getChildren (.setAll (mapv text/text (remove nil? nodes))))
-  tf)
+  (-> tf .getChildren (.setAll (mapv text/text (remove nil? nodes)))))
 
 (def font text/font)
 (def span text/span)
@@ -613,7 +607,7 @@
      (fun event))))
 
 ;;from: http://blogs.kiyut.com/tonny/2013/07/30/javafx-webview-addhyperlinklistener/
-(defmethod set-field! [WebView ::k/link-listener Object]
+(defmethod set-field! [WebView ::k/link-listener]
   [this _ listener]
   (when listener
     (-> this .getEngine .getLoadWorker .stateProperty
@@ -628,8 +622,7 @@
                     nodes (-> this .getEngine .getDocument (.getElementsByTagName "a"))]
                 (doseq [idx (range (.getLength nodes))]
                   (.addEventListener (.item nodes idx) "click" event-listener false)
-                  (.addEventListener (.item nodes idx) "mouseover" event-listener false)))))))))
-  this)
+                  (.addEventListener (.item nodes idx) "mouseover" event-listener false))))))))))
 
 ;;see com.sun.deploy.uitoolkit.impl.fx.HostServicesFactory/showDocument
 (defn open-in-browser [url]
