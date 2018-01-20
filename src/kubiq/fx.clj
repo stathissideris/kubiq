@@ -4,12 +4,16 @@
             [clojure.spec.alpha :as s]
             [kubiq :as k]
             [kubiq.util :as util]
+            [kubiq.reflection :refer [superclasses methods getter-method getter setter-method setter]]
+            [kubiq.traversal-impl :as traversal]
+            [kubiq.text-impl :as text]
             [clojure.walk :as walk]
             [hawk.core :as hawk]
             [me.raynes.fs :as fs]
             [clojure.set :as set])
   (:import [javafx.collections ObservableList ListChangeListener]
            [javafx.scene.control SplitPane TableView ListView]
+           [javafx.scene.text TextFlow]
            [javafx.scene.layout GridPane]
            [javafx.embed.swing JFXPanel]
            [javafx.application Platform]
@@ -22,7 +26,6 @@
            [javafx.concurrent Worker]
            [com.sun.javafx.stage StageHelper]
            [javafx.util Callback]
-           [javafx.scene.text Font FontWeight FontPosture TextAlignment TextFlow]
            [javafx.scene.web WebView]
            [java.net URI]
            [org.w3c.dom.events EventListener]
@@ -51,6 +54,7 @@
            (deliver p (fun))
            (catch Exception e
              (.printStackTrace e)
+             (deliver p e)
              (throw e))))))
     p))
 
@@ -88,15 +92,15 @@
       (fun p))))
 
 (defn parse-bbox [bbox]
-  {:min-x  (.getMinX   bbox)
-   :max-x  (.getMaxX   bbox)
-   :min-z  (.getMinZ   bbox)
-   :width  (.getWidth  bbox)
-   :max-z  (.getMaxZ   bbox)
-   :depth  (.getDepth  bbox)
-   :max-y  (.getMaxY   bbox)
-   :min-y  (.getMinY   bbox)
-   :height (.getHeight bbox)})
+  {::min-x  (.getMinX   bbox)
+   ::max-x  (.getMaxX   bbox)
+   ::min-z  (.getMinZ   bbox)
+   ::width  (.getWidth  bbox)
+   ::max-z  (.getMaxZ   bbox)
+   ::depth  (.getDepth  bbox)
+   ::max-y  (.getMaxY   bbox)
+   ::min-y  (.getMinY   bbox)
+   ::height (.getHeight bbox)})
 
 (defn bounds-in-screen [component]
   (parse-bbox (.localToScreen component (.getBoundsInLocal component))))
@@ -107,60 +111,31 @@
 (defn bounds-in-parent [component]
   (parse-bbox (.getBoundsInParent component)))
 
-;;;;; reflection ;;;;;
+;;;;;;;;;;;;;;;;;;;;
+;;;;; mutation ;;;;;
+;;;;;;;;;;;;;;;;;;;;
 
-(defn- superclasses [clazz]
-  (when-let [super (.getSuperclass clazz)]
-    (cons super (lazy-seq (superclasses super)))))
+(defn lookup
+  ([selector]
+   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
+  ([component selector]
+   (into #{} (-> component (.lookupAll selector) .toArray))))
 
-(defn- methods [^Class class]
-  (.getMethods class))
+(defn set-field!-dispatch
+  [o field _] [(class o) field])
+(defmulti set-field! set-field!-dispatch)
 
-(defn- getter-method [clazz field-kw]
-  (let [method-name (->> (util/kebab->camel field-kw)
-                         util/capitalize-first
-                         (str "get"))]
-    (first (filter #(= (.getName %) method-name) (mapcat methods (cons clazz (superclasses clazz)))))))
-
-(defn- getter [clazz field-kw]
-  (when-let [getter (getter-method clazz field-kw)]
-    (fn [object] (.invoke getter object (object-array [])))))
-
-(defn- setter-method [clazz field-kw]
-  (let [method-name (->> (util/kebab->camel field-kw)
-                         util/capitalize-first
-                         (str "set"))]
-    (first (filter #(= (.getName %) method-name) (mapcat methods (cons clazz (superclasses clazz)))))))
-
-(defn- setter [clazz field-kw]
-  (if-let [setter (setter-method clazz field-kw)]
-    (fn [object value]
-      (.invoke setter object (object-array [value]))
-      object)
-    (when-let [getter-method (getter-method clazz field-kw)]
-      (when (= ObservableList (.getReturnType getter-method)) ;;support for setting observable list fields
-        (let [getter (getter clazz field-kw)]
-          (fn [object value]
-            (.setAll (getter object) (remove nil? value))
-            object))))))
-
-(defn get-field [object field-kw]
-  ((getter (class object) field-kw) object))
-
-(defmulti fset (fn [o field _] [(class o) field]))
-
-(defmethod fset [Object :fx/setup]
+(defmethod set-field! [Object ::k/setup]
   [o _ value]
   (value o)
   o)
 
-;;(def set-focused! (declared-method javafx.scene.Node "setFocused" [Boolean/TYPE]))
-(defmethod fset [Object :fx/focused?]
+(defmethod set-field! [Object ::k/focused?]
   [o _ focus?]
   (when focus?
     (run-later! #(.requestFocus o))))
 
-(defmethod fset [Object :fx/event-filter]
+(defmethod set-field! [Object ::k/event-filter]
   [o _ [filter fun]]
   (.addEventFilter o filter (event-handler fun)))
 
@@ -170,25 +145,30 @@
    (str (util/kebab->camel field) "Property")
    (object-array [])))
 
-(defmethod fset [Object :fx/prop-listener]
+(defmethod set-field! [Object ::k/prop-listener]
   [o _ [prop fun]]
   (.addListener (get-property o prop) (change-listener o fun)))
 
-(declare set-field-in!)
-(defn set-field! [object field value]
+(declare fset-in!)
+(defn fset! [object field value]
   (when object
     (cond
-      (and (= object :fx/top-level) (= field :children))
+      (and (= object ::k/top-level) (= field ::k/children))
       (StageHelper/getStages)
+
+      (string? object)
+      (let [objs (lookup object)]
+        (fset! (first objs) field value))
 
       (integer? field) ;;ObservableList
       (.set object field value)
 
       (vector? field)
-      (set-field-in! object field value)
+      (fset-in! object field value)
 
-      (namespace field)
-      (fset object field value)
+      (and (not= "kubiq.fx" (namespace field)) ;; :kubik.fx/ always skips set-field!
+           (get-method set-field! (set-field!-dispatch object field value)))
+      (set-field! object field value)
 
       :else
       (try
@@ -220,72 +200,39 @@
                                   e))))))))))
   object)
 
-(defn update-field! [object field fun & args]
-  (let [old-value (get-field object field)]
-    (set-field! object field (apply fun old-value args))))
+;;;;;;;;;;;;
+;; access ;;
+;;;;;;;;;;;;
 
-(defn- reload-stylesheet! [component path]
-  (doto component
-    (-> .getStylesheets (.remove path))
-    (-> .getStylesheets (.add path))))
+(defn get-field-dispatch [o field] [(class o) field])
+(defmulti get-field get-field-dispatch)
 
-(defn- watch-sheet! [component path]
-  (let [wp (some-> path URI. fs/file .getPath)]
-    {:path         path
-     :watcher-path wp
-     :file-watcher
-     (hawk/watch! [{:paths   [wp]
-                    :handler (fn [_ _]
-                               (run-later!
-                                #(reload-stylesheet! component path)))}])}))
-
-(defmethod fset [Object :fx/stylesheets]
-  [o _ paths]
-  (let [paths (map util/resource->external-form paths)]
-    (doto o
-      (-> .getStylesheets .clear)
-      (-> .getStylesheets (.addAll paths))
-      (util/alter-meta! assoc :stylesheets (mapv #(watch-sheet! o %) paths)))))
-
-(defmethod fset [WebView :fx/stylesheet]
-  [o _ path]
-  (let [path (util/resource->external-form path)
-        wp   (some-> path URI. fs/file .getPath)]
-    (-> o .getEngine (.setUserStyleSheetLocation path))
-    (util/alter-meta!
-     o assoc :stylesheet
-     {:path         path
-      :watcher-path wp
-      :watcher      (hawk/watch! [{:paths   [wp]
-                                   :handler (fn [_ _]
-                                              (run-later!
-                                               #(doto o
-                                                  (-> .getEngine (.setUserStyleSheetLocation nil))
-                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
-
-(defmulti fget (fn [o field] [(class o) field]))
-
-(defmethod fget [ListView :fx/visible-range]
+(defmethod get-field [ListView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 0))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
-(defmethod fget [TableView :fx/visible-range]
+(defmethod get-field [TableView ::k/visible-range]
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 1))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)
      (some-> virtual-flow .getLastVisibleCell .getIndex)]))
 
-(defn get-field [object field]
-  (cond (and (= object :fx/top-level) (= field :children))
+(defn fget [object field]
+  (cond (and (= object ::k/top-level) (= field ::k/children))
         (StageHelper/getStages)
+
+        (string? object)
+        (let [objs (lookup object)]
+          (fget (first objs) field))
 
         (integer? field) ;;ObservableList
         (.get object field)
 
-        (namespace field)
-        (fget object field)
+        (and (not= "kubiq.fx" (namespace field)) ;; :kubik.fx/ always skips get-field
+             (get-method get-field (get-field-dispatch object field)))
+        (get-field object field)
 
         :else
         (clojure.lang.Reflector/invokeInstanceMethod
@@ -297,27 +244,27 @@
          (object-array []))))
 
 ;;(s/def ::path (s/coll-of (s/or :field-name keyword? :index nat-int?)))
-(defn get-field-in [root path]
+(defn fget-in [root path]
   (reduce (fn [o field]
             (try
-              (get-field o field)
+              (fget o field)
               (catch Exception e
-                (throw (ex-info "get-field-in failed"
+                (throw (ex-info "fget-in failed"
                                 {:path           path
                                  :root           root
                                  :current-object o
                                  :current-field  field}
                                 e))))) root path))
-(s/fdef get-field-in
+(s/fdef fget-in
   :args (s/cat :root some? :path ::path))
 
-(defn set-field-in! [root path value]
+(defn fset-in! [root path value]
   (let [field       (last path)
         parent-path (butlast path)]
     (try
-      (set-field! (get-field-in root parent-path) field value)
+      (fset! (fget-in root parent-path) field value)
       (catch Exception e
-        (throw (ex-info "set-field-in! failed"
+        (throw (ex-info "fset-in! failed"
                         {:path  path
                          :value value
                          :root  root}
@@ -325,30 +272,34 @@
 ;; (s/fdef set-field-in!
 ;;   :args (s/cat :root some? :path ::path :value any?))
 
+(defn update! [object field fun & args]
+  (let [old-value (fget object field)]
+    (fset! object field (apply fun old-value args))))
+
 (defn set-fields! [object pairs]
   (doseq [[field value] pairs]
-    (set-field! object field value))
+    (fset! object field value))
   object)
 
 (defn insert-in! [root path value]
-  (if (and (= root :fx/top-level) (= 2 (count path)))
+  (if (and (= root ::k/top-level) (= 2 (count path)))
     (do
       (.add (StageHelper/getStages) (last path) value)
       (.show value))
     (let [index       (last path)
           parent-path (butlast path)
-          coll        (get-field-in root parent-path)]
+          coll        (fget-in root parent-path)]
       (.add coll index value))))
 
 (defn remove-in! [root path]
-  (if (and (= root :fx/top-level) (= 2 (count path)))
+  (if (and (= root ::k/top-level) (= 2 (count path)))
     (let [stages (StageHelper/getStages)
           value  (.get stages (last path))]
       (.remove stages value)
       (.close value))
     (let [index       (last path)
           parent-path (butlast path)
-          coll        (get-field-in root parent-path)
+          coll        (fget-in root parent-path)
           item        (.get coll index)]
       (.remove coll item)))) ;;removing by index does not work
 
@@ -377,50 +328,103 @@
                         :args  args}
                        e))))))
 
+;;;;;;;;;;;;;;;;
 ;;;;; make ;;;;;
+;;;;;;;;;;;;;;;;
 
-(defn make-args [spec]
-  (vec (second (first (filter #(= (first %) :fx/args) spec)))))
+(defn- make-args [spec]
+  (vec (second (first (filter #(= (first %) ::k/args) spec)))))
 
-(defn make-other [spec]
-  (remove #(= (first %) :fx/args) spec))
+(defn- make-other [spec]
+  (remove #(= (first %) ::k/args) spec))
+
+(defn make-component
+  ([class-or-instance]
+   (make-component class-or-instance {}))
+  ([class-or-instance spec]
+   (try
+    (cond (= ::k/top-level class-or-instance)
+          ::k/top-level
+
+          (= ::k/unmanaged class-or-instance)
+          (::k/component spec)
+
+          :else
+          (let [o (if (or (keyword? class-or-instance)
+                          (class? class-or-instance))
+                    (new-instance class-or-instance (make-args spec))
+                    class-or-instance)]
+            (doseq [[field value :as entry] (make-other spec)]
+              (when entry (fset! o field value)))
+            o))
+    (catch Exception e
+      (throw (ex-info "Error while constructing component"
+                      {:spec    spec
+                       :message (.getMessage e)}
+                      e))))))
 
 (defn make
-  ([class-or-instance]
-   (make class-or-instance {}))
-  ([class-or-instance spec]
-   (cond (= :fx/top-level class-or-instance)
-         :fx/top-level
-
-         (= :fx/unmanaged class-or-instance)
-         (:fx/component spec)
-
-         :else
-         (let [o (if (or (keyword? class-or-instance)
-                         (class? class-or-instance))
-                   (new-instance class-or-instance (make-args spec))
-                   class-or-instance)]
-           (doseq [[field value :as entry] (make-other spec)]
-             (when entry (set-field! o field value)))
-           o))))
-
-(defn make-tree
   [tree]
   (walk/postwalk
    (fn [item]
-     (if (:fx/type item)
-       (make (:fx/type item)
-             (dissoc item :fx/type))
+     (if (::k/type item)
+       (make-component (::k/type item)
+                       (dissoc item ::k/type))
        item))
    tree))
 
 (defn unmanaged [component]
-  {:fx/type      :fx/unmanaged
-   :fx/component component})
+  {::k/type      ::k/unmanaged
+   ::k/component component})
 
+;;;;;;;;;
+;; CSS ;;
+;;;;;;;;;
+
+(defn- reload-stylesheet! [component path]
+  (doto component
+    (-> .getStylesheets (.remove path))
+    (-> .getStylesheets (.add path))))
+
+(defn- watch-sheet! [component path]
+  (let [wp (some-> path URI. fs/file .getPath)]
+    {:path         path
+     :watcher-path wp
+     :file-watcher
+     (hawk/watch! [{:paths   [wp]
+                    :handler (fn [_ _]
+                               (run-later!
+                                #(reload-stylesheet! component path)))}])}))
+
+(defmethod set-field! [Object ::k/stylesheets]
+  [o _ paths]
+  (let [paths (map util/resource->external-form paths)]
+    (doto o
+      (-> .getStylesheets .clear)
+      (-> .getStylesheets (.addAll paths))
+      (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
+
+(defmethod set-field! [WebView ::k/stylesheet]
+  [o _ path]
+  (let [path (util/resource->external-form path)
+        wp   (some-> path URI. fs/file .getPath)]
+    (-> o .getEngine (.setUserStyleSheetLocation path))
+    (util/alter-meta!
+     o assoc ::k/stylesheet
+     {:path         path
+      :watcher-path wp
+      :watcher      (hawk/watch! [{:paths   [wp]
+                                   :handler (fn [_ _]
+                                              (run-later!
+                                               #(doto o
+                                                  (-> .getEngine (.setUserStyleSheetLocation nil))
+                                                  (-> .getEngine (.setUserStyleSheetLocation path)))))}])})))
+
+;;;;;;;;;;;;;;;;;;
 ;;;;; Layout ;;;;;
+;;;;;;;;;;;;;;;;;;
 
-(defmethod fset [GridPane ::k/children]
+(defmethod set-field! [GridPane ::k/children]
   ([gp _ rows]
    (doall
     (map-indexed
@@ -432,18 +436,20 @@
          row)))
      rows))))
 
+;;;;;;;;;;;;;;;;;;;
 ;;;;; "React" ;;;;;
+;;;;;;;;;;;;;;;;;;;
 
 (defn- type-change? [diff-group]
   (some?
    (first
     (filter #(and (= :edit (:type %))
                   (= :map (:struct %))
-                  (= :fx/type (last (:path %)))) diff-group))))
+                  (= ::k/type (last (:path %)))) diff-group))))
 
 (defn- ignore-diff? [{:keys [type path] :as diff}]
-  (or (and (= :edit type) (contains? (set path) :fx/setup))
-      (and (= :edit type) (contains? (set path) :fx/args))))
+  (or (and (= :edit type) (contains? (set path) ::k/setup))
+      (and (= :edit type) (contains? (set path) ::k/args))))
 
 ;;(require '[clojure.pprint :refer [pprint]])
 (defn update-tree!
@@ -454,126 +460,33 @@
       (cond
         (type-change? diff-group)
         (run-later!
-         #(set-field-in! root
+         #(fset-in! root
                          (-> diff-group first :path butlast)
-                         (make-tree (->> diff-group
-                                         (filter (comp #{:edit :assoc} :type))
-                                         (map (juxt (comp last :path) :value))
-                                         (into {})))))
+                         (make-component (->> diff-group
+                                              (filter (comp #{:edit :assoc} :type))
+                                              (map (juxt (comp last :path) :value))
+                                              (into {})))))
         :else
         (doseq [{:keys [type path value] :as diff} (remove ignore-diff? diff-group)]
           (run-later!
            #(condp = type
-              :edit   (set-field-in! root path (make-tree value))
-              :assoc  (set-field-in! root path (make-tree value))
-              :dissoc (set-field-in! root path nil)
-              :insert (insert-in! root path (make-tree value))
+              :edit   (fset-in! root path (make value))
+              :assoc  (fset-in! root path (make value))
+              :dissoc (fset-in! root path nil)
+              :insert (insert-in! root path (make value))
               :delete (remove-in! root path))))))))
 
+;;;;;;;;;;;;;;;;;;;;;
 ;;;;; traversal ;;;;;
+;;;;;;;;;;;;;;;;;;;;;
 
-(defprotocol Parent
-  (children? [this])
-  (children [this])
-  (child [this index]))
-
-(deftype TopLevel []
-  Parent
-  (children [this]
-    (distinct (seq (StageHelper/getStages))))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-    (.get (children this) index)))
-
-(def top-level (TopLevel.))
-
-(extend-type javafx.stage.Stage
-  Parent
-  (children [this] [(.getScene this)])
-  (children? [this] true)
-  (child [this index] (.getScene this)))
-
-(extend-type javafx.scene.Scene
-  Parent
-  (children [this] [(.getRoot this)])
-  (children? [this] true)
-  (child [this index] (.getRoot this)))
-
-(extend-type javafx.scene.layout.Pane
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.SplitPane
-  Parent
-  (children [this]
-    (.getItems this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-    (.get (children this) index)))
-
-(extend-type javafx.scene.control.ScrollPane
-  Parent
-  (children [this]
-    [(.getContent this)])
-  (children? [this]
-    true)
-  (child [this index]
-    (.getContent this)))
-
-(extend-type javafx.scene.Group
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.layout.GridPane
-  Parent
-  (children [this]
-    (.getChildren this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.TabPane
-  Parent
-  (children [this]
-    (.getTabs this))
-  (children? [this]
-    (< 0 (count (children this))))
-  (child [this index]
-   (.get (children this) index)))
-
-(extend-type javafx.scene.control.Tab
-  Parent
-  (children [this]
-    [(.getContent this)])
-  (children? [this]
-    1)
-  (child [this index]
-    (first (children this))))
-
-(extend-type Object
-  Parent
-  (children [this] nil)
-  (children? [this] false)
-  (child [this index] nil))
+(def top-level (kubiq.traversal_impl.TopLevel.))
 
 (defn- safe-id [component]
   (try (.getId component) (catch Exception _ nil)))
 
 (defn tree-seq [root]
-  (clojure.core/tree-seq children? children root))
+  (clojure.core/tree-seq traversal/children? traversal/children root))
 
 (defn find-by-id
   ([id]
@@ -600,32 +513,40 @@
       {:component root}
       (when-let [m (not-empty (util/meta root))]
         {:meta m})
-      (when (children? root)
-        {:children (mapv tree (children root))})))))
+      (when (traversal/children? root)
+        {:children (mapv tree (traversal/children root))})))))
 
 (defn stage-of [component]
   (some-> component .getScene .getWindow))
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; convenience functions ;;;;;
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 (defn label
   [text & [spec]]
-  (make :scene.control/label (merge {:text (str text)} spec)))
+  (make
+   (merge {::k/type :scene.control/label
+           ::text   (str text)}
+          spec)))
 
 (defn window [title root]
-  (make :stage/stage
-        {:scene (make :scene/scene {:fx/args [root]})}))
+  (make {::k/type :stage/stage
+         ::scene {::k/type :scene/scene
+                  ::k/args [root]}}))
 
 (defn transparent-window [root]
-  (make :stage/stage
-        {:fx/args [StageStyle/TRANSPARENT]
-         :scene (make :scene/scene {:fx/args [root]
-                                    :fill Color/TRANSPARENT})}))
+  (make {::k/type :stage/stage
+         ::k/args [StageStyle/TRANSPARENT]
+         ::scene  {::k/type :scene/scene
+                   ::k/args [root]
+                   ::fill   Color/TRANSPARENT}}))
 
 (defn undecorated-window [root]
-  (make :stage/stage
-        {:fx/args [StageStyle/UNDECORATED]
-         :scene (make :scene/scene {:fx/args [root]})}))
+  (make {::k/type :stage/stage
+         ::k/args [StageStyle/UNDECORATED]
+         ::scene  {::k/type :scene/scene
+                   ::k/args [root]}}))
 
 (defn show! [c] (.show c) c)
 
@@ -642,101 +563,22 @@
 (defn focus-owner [stage]
   (some-> stage .getScene .focusOwnerProperty .get))
 
-(defn lookup
-  ([selector]
-   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
-  ([component selector]
-   (into #{} (-> component (.lookupAll selector) .toArray))))
-
-;;;;;;;;;;;;;;;;;;;; text ;;;;;;;;;;;;;;;;;;;;
-
-(defprotocol Text
-  (text [this]))
-
-(extend-type javafx.scene.text.Text
-  Text
-  (text [this] this))
+;;;;;;;;;;;;;;;;
+;;;;; text ;;;;;
+;;;;;;;;;;;;;;;;
 
 (extend-type String
-  Text
-  (text [this] (make :scene.text/text {:fx/args [this]})))
+  text/Text
+  (text [this] (make {::k/type :scene.text/text
+                      ::k/args [this]})))
 
-(let [default-font (Font/getDefault)]
-  (def font-defaults
-    {:family  (.getFamily default-font)
-     :weight  FontWeight/NORMAL
-     :posture FontPosture/REGULAR
-     :size    (.getSize default-font)}))
-
-(def font-weight-map
-  {"black"       FontWeight/BLACK
-   "bold"        FontWeight/BOLD
-   "extra-bold"  FontWeight/EXTRA_BOLD
-   "extra-light" FontWeight/EXTRA_LIGHT
-   "light"       FontWeight/LIGHT
-   "medium"      FontWeight/MEDIUM
-   "normal"      FontWeight/NORMAL
-   "semi-bold"   FontWeight/SEMI_BOLD
-   "thin"        FontWeight/THIN})
-
-(def font-posture-map
-  {"italic"  FontPosture/ITALIC
-   "regular" FontPosture/REGULAR})
-
-(defn font [{:keys [family weight posture size] :as options}]
-  (let [options (cond-> options
-                  weight  (assoc :weight (font-weight-map weight))
-                  posture (assoc :posture (font-posture-map posture)))
-        {:keys [family weight posture size]}
-        (merge font-defaults options)]
-    (Font/font family weight posture size)))
-
-(def text-alignment-map
-  {:center  TextAlignment/CENTER
-   :justify TextAlignment/JUSTIFY
-   :left    TextAlignment/LEFT
-   :right   TextAlignment/RIGHT})
-
-(defn span [{:keys [underline strike align fill] :as attr} content]
-  (let [font-attr (not-empty (select-keys attr [:family :weight :posture :size]))
-        f         (when font-attr (font font-attr))
-        text
-        (doto (javafx.scene.text.Text. content)
-          (.setUnderline (or underline false))
-          (.setStrikethrough (or strike false))
-          (.setTextAlignment (text-alignment-map (or align :left))))]
-    (when f (.setFont text f))
-    (when fill
-      (.setFill text fill))
-    text))
-
-(extend-type clojure.lang.APersistentVector
-  Text
-  (text [this]
-    (let [tag     (first this)
-          attr    (when (map? (second this)) (second this))
-          content (if attr (drop 2 this) (rest this))]
-      (when (not (every? (some-fn nil? string?) content))
-        (throw (ex-info "text hiccup tags cannot be nested" {:tag this})))
-      (let [content (apply str (remove nil? content))]
-        (condp = tag
-          :span (span attr content)
-          :b    (span {:weight "bold"} content)
-          :i    (span {:posture "italic"} content)
-          :u    (span {:underline true} content)
-          :del  (span {:strike true} content))))))
-
-(defn text-flow
-  ([]
-   (TextFlow.))
-  ([nodes]
-   (if (empty? nodes)
-     (TextFlow.)
-     (TextFlow. (into-array Node (map text (remove nil? nodes)))))))
-
-(defmethod fset [TextFlow :fx/children]
+(defmethod set-field! [TextFlow ::k/children]
   [tf _ nodes]
-  (-> tf .getChildren (.setAll (mapv text (remove nil? nodes)))))
+  (-> tf .getChildren (.setAll (mapv text/text (remove nil? nodes)))))
+
+(def font text/font)
+(def span text/span)
+(def text-flow text/text-flow)
 
 ;;;;;;;;;;;;;;;;;;;; color ;;;;;;;;;;;;;;;;;;;;
 
@@ -770,7 +612,7 @@
      (fun event))))
 
 ;;from: http://blogs.kiyut.com/tonny/2013/07/30/javafx-webview-addhyperlinklistener/
-(defmethod fset [WebView :fx/link-listener]
+(defmethod set-field! [WebView ::k/link-listener]
   [this _ listener]
   (when listener
     (-> this .getEngine .getLoadWorker .stateProperty
@@ -804,12 +646,12 @@
 ;;;;;;;;;;;;;;;;;;;; text-areas ;;;;;;;;;;;;;;;;;;;;
 
 (defn insert-text! [text-field text]
-  (let [pos      (get-field text-field :caret-position)
-        old-text (get-field text-field :text)]
-    (set-field! text-field
-                :text (str (subs old-text 0 pos)
-                           text
-                           (subs old-text pos)))
+  (let [pos      (fget text-field :caret-position)
+        old-text (fget text-field :text)]
+    (fset! text-field
+           :text (str (subs old-text 0 pos)
+                      text
+                      (subs old-text pos)))
     (.positionCaret text-field (+ pos (count text)))))
 
 (defn caret-left
@@ -860,38 +702,38 @@
 
   https://stackoverflow.com/questions/13015698/how-to-calculate-the-pixel-width-of-a-string-in-javafx"
   [component]
-  (make-tree
-   {:fx/type :scene/scene
-    :fx/args [component]})
+  (make
+   {::k/type :scene/scene
+    ::k/args [component]})
   (.applyCss component)
   (.layout component)
   component)
 
 
 (comment
-  (make
+  (make-component
    :scene.control/button
-   [[:fx/args ["foo"]]
+   [[::k/args ["foo"]]
     [:text "bar"]
-    [:fx/setup #(.setText % "baz")]]))
+    [::k/setup #(.setText % "baz")]]))
 
 (comment
-  (make-tree
-   {:fx/type     :scene.control/split-pane
-    :orientation javafx.geometry.Orientation/HORIZONTAL
-    :items       [{:fx/type :scene.control/label
-                   :text    "foo"}
-                  {:fx/type :scene.control/label
-                   :text    "bar"}
-                  {:fx/type :scene.layout/border-pane
-                   :center  {:fx/type :scene.control/label
-                             :text    "baz"}
-                   :bottom  {:fx/type :scene.control/label
-                             :text    "zoo"}}]}))
+  (make
+   {::k/type      :scene.control/split-pane
+    ::orientation javafx.geometry.Orientation/HORIZONTAL
+    ::items       [{::k/type  :scene.control/label
+                    ::text "foo"}
+                   {::k/type  :scene.control/label
+                    ::text "bar"}
+                   {::k/type :scene.layout/border-pane
+                    ::center {::k/type  :scene.control/label
+                              ::text "baz"}
+                    ::bottom {::k/type  :scene.control/label
+                              ::text "zoo"}}]}))
 
 (comment
   (def s (-> (new-instance :scene.control/split-pane)
              (set-field! :items [(new-instance :scene.control/button ["1"])
                                  (new-instance :scene.control/button ["2"])
                                  (new-instance :scene.control/button ["3"])])))
-  (get-field s :items))
+  (fget s ::items))
