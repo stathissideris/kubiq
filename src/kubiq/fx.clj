@@ -92,15 +92,15 @@
       (fun p))))
 
 (defn parse-bbox [bbox]
-  {::min-x  (.getMinX   bbox)
-   ::max-x  (.getMaxX   bbox)
-   ::min-z  (.getMinZ   bbox)
-   ::width  (.getWidth  bbox)
-   ::max-z  (.getMaxZ   bbox)
-   ::depth  (.getDepth  bbox)
-   ::max-y  (.getMaxY   bbox)
-   ::min-y  (.getMinY   bbox)
-   ::height (.getHeight bbox)})
+  {::k/min-x  (.getMinX   bbox)
+   ::k/max-x  (.getMaxX   bbox)
+   ::k/min-z  (.getMinZ   bbox)
+   ::k/width  (.getWidth  bbox)
+   ::k/max-z  (.getMaxZ   bbox)
+   ::k/depth  (.getDepth  bbox)
+   ::k/max-y  (.getMaxY   bbox)
+   ::k/min-y  (.getMinY   bbox)
+   ::k/height (.getHeight bbox)})
 
 (defn bounds-in-screen [component]
   (parse-bbox (.localToScreen component (.getBoundsInLocal component))))
@@ -256,7 +256,7 @@
                                  :current-field  field}
                                 e))))) root path))
 (s/fdef fget-in
-  :args (s/cat :root some? :path ::path))
+  :args (s/cat :root some? :path ::k/path))
 
 (defn fset-in! [root path value]
   (let [field       (last path)
@@ -527,26 +527,26 @@
   [text & [spec]]
   (make
    (merge {::k/type :scene.control/label
-           ::text   (str text)}
+           ::k/text (str text)}
           spec)))
 
 (defn window [title root]
-  (make {::k/type :stage/stage
-         ::scene {::k/type :scene/scene
-                  ::k/args [root]}}))
+  (make {::k/type  :stage/stage
+         ::k/scene {::k/type :scene/scene
+                    ::k/args [root]}}))
 
 (defn transparent-window [root]
-  (make {::k/type :stage/stage
-         ::k/args [StageStyle/TRANSPARENT]
-         ::scene  {::k/type :scene/scene
-                   ::k/args [root]
-                   ::fill   Color/TRANSPARENT}}))
+  (make {::k/type  :stage/stage
+         ::k/args  [StageStyle/TRANSPARENT]
+         ::k/scene {::k/type :scene/scene
+                    ::k/args [root]
+                    ::k/fill   Color/TRANSPARENT}}))
 
 (defn undecorated-window [root]
-  (make {::k/type :stage/stage
-         ::k/args [StageStyle/UNDECORATED]
-         ::scene  {::k/type :scene/scene
-                   ::k/args [root]}}))
+  (make {::k/type  :stage/stage
+         ::k/args  [StageStyle/UNDECORATED]
+         ::k/scene {::k/type :scene/scene
+                    ::k/args [root]}}))
 
 (defn show! [c] (.show c) c)
 
@@ -714,26 +714,26 @@
   (make-component
    :scene.control/button
    [[::k/args ["foo"]]
-    [:text "bar"]
+    [::k/text "bar"]
     [::k/setup #(.setText % "baz")]]))
 
 (comment
   (make
-   {::k/type      :scene.control/split-pane
-    ::orientation javafx.geometry.Orientation/HORIZONTAL
-    ::items       [{::k/type  :scene.control/label
-                    ::text "foo"}
-                   {::k/type  :scene.control/label
-                    ::text "bar"}
-                   {::k/type :scene.layout/border-pane
-                    ::center {::k/type  :scene.control/label
-                              ::text "baz"}
-                    ::bottom {::k/type  :scene.control/label
-                              ::text "zoo"}}]}))
+   {::k/type        :scene.control/split-pane
+    ::k/orientation javafx.geometry.Orientation/HORIZONTAL
+    ::k/items       [{::k/type  :scene.control/label
+                      ::k/text "foo"}
+                     {::k/type  :scene.control/label
+                      ::k/text "bar"}
+                     {::k/type :scene.layout/border-pane
+                      ::k/center {::k/type  :scene.control/label
+                                  ::k/text "baz"}
+                      ::k/bottom {::k/type  :scene.control/label
+                                  ::k/text "zoo"}}]}))
 
 (comment
   (def s (-> (new-instance :scene.control/split-pane)
              (set-field! :items [(new-instance :scene.control/button ["1"])
                                  (new-instance :scene.control/button ["2"])
                                  (new-instance :scene.control/button ["3"])])))
-  (fget s ::items))
+  (fget s ::k/items))
