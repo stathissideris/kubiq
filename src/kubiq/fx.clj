@@ -121,7 +121,9 @@
   ([component selector]
    (into #{} (-> component (.lookupAll selector) .toArray))))
 
-(defmulti set-field! (fn [o field _] [(class o) field]))
+(defn set-field!-dispatch
+  [o field _] [(class o) field])
+(defmulti set-field! set-field!-dispatch)
 
 (defmethod set-field! [Object ::k/setup]
   [o _ value]
@@ -164,7 +166,8 @@
       (vector? field)
       (fset-in! object field value)
 
-      (not= "kubiq.fx" (namespace field))
+      (and (not= "kubiq.fx" (namespace field)) ;; :kubik.fx/ always skips set-field!
+           (get-method set-field! (set-field!-dispatch object field value)))
       (set-field! object field value)
 
       :else
@@ -201,7 +204,8 @@
 ;; access ;;
 ;;;;;;;;;;;;
 
-(defmulti get-field (fn [o field] [(class o) field]))
+(defn get-field-dispatch [o field] [(class o) field])
+(defmulti get-field get-field-dispatch)
 
 (defmethod get-field [ListView ::k/visible-range]
   [o _]
@@ -226,7 +230,8 @@
         (integer? field) ;;ObservableList
         (.get object field)
 
-        (not= "kubiq.fx" (namespace field))
+        (and (not= "kubiq.fx" (namespace field)) ;; :kubik.fx/ always skips get-field
+             (get-method get-field (get-field-dispatch object field)))
         (get-field object field)
 
         :else
