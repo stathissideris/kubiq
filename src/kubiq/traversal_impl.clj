@@ -1,5 +1,11 @@
 (ns kubiq.traversal-impl
-  (:import [com.sun.javafx.stage StageHelper]))
+  (:import [com.sun.javafx.stage StageHelper]
+           [javafx.stage Stage]
+           [javafx.scene Scene Group]
+           [javafx.scene.layout Pane GridPane]
+           [javafx.scene.control SplitPane ScrollPane TabPane Tab]))
+
+(defonce force-toolkit-init (javafx.embed.swing.JFXPanel.))
 
 (defprotocol Parent
   (children? [this])
@@ -15,19 +21,19 @@
   (child [this index]
     (.get (children this) index)))
 
-(extend-type javafx.stage.Stage
+(extend-type Stage
   Parent
   (children [this] [(.getScene this)])
   (children? [this] true)
   (child [this index] (.getScene this)))
 
-(extend-type javafx.scene.Scene
+(extend-type Scene
   Parent
   (children [this] [(.getRoot this)])
   (children? [this] true)
   (child [this index] (.getRoot this)))
 
-(extend-type javafx.scene.layout.Pane
+(extend-type Pane
   Parent
   (children [this]
     (.getChildren this))
@@ -36,7 +42,7 @@
   (child [this index]
    (.get (children this) index)))
 
-(extend-type javafx.scene.control.SplitPane
+(extend-type SplitPane
   Parent
   (children [this]
     (.getItems this))
@@ -45,7 +51,7 @@
   (child [this index]
     (.get (children this) index)))
 
-(extend-type javafx.scene.control.ScrollPane
+(extend-type ScrollPane
   Parent
   (children [this]
     [(.getContent this)])
@@ -54,7 +60,7 @@
   (child [this index]
     (.getContent this)))
 
-(extend-type javafx.scene.Group
+(extend-type Group
   Parent
   (children [this]
     (.getChildren this))
@@ -63,7 +69,7 @@
   (child [this index]
    (.get (children this) index)))
 
-(extend-type javafx.scene.layout.GridPane
+(extend-type GridPane
   Parent
   (children [this]
     (.getChildren this))
@@ -72,7 +78,7 @@
   (child [this index]
    (.get (children this) index)))
 
-(extend-type javafx.scene.control.TabPane
+(extend-type TabPane
   Parent
   (children [this]
     (.getTabs this))
@@ -81,7 +87,7 @@
   (child [this index]
    (.get (children this) index)))
 
-(extend-type javafx.scene.control.Tab
+(extend-type Tab
   Parent
   (children [this]
     [(.getContent this)])

@@ -1,4 +1,5 @@
 (ns kubiq.reflection
+  (:refer-clojure :exclude [parents methods tree-seq])
   (:require [kubiq.util :as util])
   (:import [javafx.collections ObservableList]))
 
