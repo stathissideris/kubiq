@@ -29,14 +29,21 @@
            [javafx.scene.web WebView]
            [java.net URI]
            [org.w3c.dom.events EventListener]
-           [javax.swing ImageIcon]))
-
-(defonce force-toolkit-init (javafx.embed.swing.JFXPanel.))
+           [javax.swing ImageIcon]
+           [java.util.concurrent CountDownLatch]
+           [javax.swing SwingUtilities]))
 
 ;;;; utils ;;;;;
 
 (defn init []
-  (Platform/setImplicitExit false))
+  (println "Initializing JavaFX...")
+  (let [latch (CountDownLatch. 1)]
+    (SwingUtilities/invokeLater
+     #(do (javafx.embed.swing.JFXPanel.)
+          (.countDown latch)))
+    (.await latch))
+  ;;(Platform/setImplicitExit false)
+  )
 
 (defn on-fx-thread? []
   (Platform/isFxApplicationThread))
@@ -203,11 +210,11 @@
 ;;;;;;;;;;;;
 ;; access ;;
 ;;;;;;;;;;;;
-
+;;;OK TO HERE;;;
 (defn get-field-dispatch [o field] [(class o) field])
 (defmulti get-field get-field-dispatch)
 
-(defmethod get-field [ListView ::k/visible-range]
+(defmethod get-field [ListView ::k/visible-range] ;;;;;;;;;;;;;;;;;;
   [o _]
   (let [virtual-flow (some-> o .getSkin .getChildren (.get 0))]
     [(some-> virtual-flow .getFirstVisibleCell .getIndex)

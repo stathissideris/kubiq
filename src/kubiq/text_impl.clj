@@ -10,8 +10,8 @@
   Text
   (text [this] this))
 
-(let [default-font (Font/getDefault)]
-  (def font-defaults
+(defn font-defaults []
+  (let [default-font (Font/getDefault)]
     {::family  (.getFamily default-font)
      ::weight  FontWeight/NORMAL
      ::posture FontPosture/REGULAR
@@ -37,7 +37,7 @@
                   weight  (assoc ::weight (font-weight-map weight))
                   posture (assoc ::posture (font-posture-map posture)))
         {:keys [family weight posture size]}
-        (merge font-defaults options)]
+        (merge (font-defaults) options)]
     (Font/font family weight posture size)))
 
 (def text-alignment-map

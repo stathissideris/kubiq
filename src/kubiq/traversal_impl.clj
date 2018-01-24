@@ -5,8 +5,6 @@
            [javafx.scene.layout Pane GridPane]
            [javafx.scene.control SplitPane ScrollPane TabPane Tab]))
 
-(defonce force-toolkit-init (javafx.embed.swing.JFXPanel.))
-
 (defprotocol Parent
   (children? [this])
   (children [this])
