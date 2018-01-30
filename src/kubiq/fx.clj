@@ -405,11 +405,14 @@
 
 (defmethod set-field! [Object ::k/stylesheets]
   [o _ paths]
-  (let [paths (map util/resource->external-form paths)]
+  (let [paths (mapv util/resource->external-form paths)]
     (doto o
       (-> .getStylesheets .clear)
       (-> .getStylesheets (.addAll paths))
-      (util/alter-meta! assoc ::k/stylesheets (mapv #(watch-sheet! o %) paths)))))
+      (util/alter-meta! assoc ::k/stylesheets
+                        (->> paths
+                             (remove #(.startsWith % "jar:"))
+                             (mapv #(watch-sheet! o %)))))))
 
 (defmethod set-field! [WebView ::k/stylesheet]
   [o _ path]
