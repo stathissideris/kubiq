@@ -4,8 +4,6 @@
             [kubiq.fx :refer :all :as fx]
             [clojure.test :refer :all]))
 
-(init)
-
 (deftest simple-make
   (is (= "foo" (fget (make {::k/type :scene.control/label
                             ::fx/text "foo"})

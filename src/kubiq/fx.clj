@@ -35,15 +35,15 @@
 
 ;;;; utils ;;;;;
 
-(defn init []
-  (println "Initializing JavaFX...")
-  (let [latch (CountDownLatch. 1)]
-    (SwingUtilities/invokeLater
-     #(do (javafx.embed.swing.JFXPanel.)
-          (.countDown latch)))
-    (.await latch))
-  ;;(Platform/setImplicitExit false)
-  )
+;; (defn init []
+;;   (println "Initializing JavaFX...")
+;;   (let [latch (CountDownLatch. 1)]
+;;     (SwingUtilities/invokeLater
+;;      #(do (javafx.embed.swing.JFXPanel.)
+;;           (.countDown latch)))
+;;     (.await latch))
+;;   ;;(Platform/setImplicitExit false)
+;;   )
 
 (defn on-fx-thread? []
   (Platform/isFxApplicationThread))
@@ -405,7 +405,7 @@
 
 (defmethod set-field! [Object ::k/stylesheets]
   [o _ paths]
-  (let [paths (mapv util/resource->external-form paths)]
+  (let [paths (mapv util/resource->external-form (remove nil? paths))]
     (doto o
       (-> .getStylesheets .clear)
       (-> .getStylesheets (.addAll paths))
@@ -719,6 +719,20 @@
   (.layout component)
   component)
 
+(defn os []
+  (str/lower-case (System/getProperty "os.name")))
+
+(defn windows? []
+  (.contains (os) "win"))
+
+(defn mac? []
+  (.contains (os) "mac"))
+
+(defn unix? []
+  (let [os (os)]
+    (or (.contains os "nix")
+        (.contains os "nux")
+        (.contains os "aix"))))
 
 (comment
   (make-component

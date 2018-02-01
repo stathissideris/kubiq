@@ -1,7 +1,6 @@
 (ns kubiq.util
   (:refer-clojure :exclude [meta alter-meta!])
-  (:require [clojure.string :as str]
-            [clojure.java.io :as io])
+  (:require [clojure.string :as str])
   (:import java.util.WeakHashMap))
 
 (defn camel->kebab [from]
@@ -21,10 +20,13 @@
       (str (.toUpperCase (subs s 0 1))
            (subs s 1)))))
 
+(defn resource [filename]
+  (-> Object (.getResource filename)))
+
 (defn resource->external-form [x]
   (if (str/starts-with? x "file:")
     x
-    (.toExternalForm (io/resource x))))
+    (.toExternalForm (resource x))))
 
 ;;;;;;;;;;;;;;;;;;;; meta ;;;;;;;;;;;;;;;;;;;;
 
