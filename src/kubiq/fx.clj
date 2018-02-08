@@ -389,6 +389,7 @@
 ;;;;;;;;;
 
 (defn- reload-stylesheet! [component path]
+  (println "Reloading CSS:" path)
   (doto component
     (-> .getStylesheets (.remove path))
     (-> .getStylesheets (.add path))))
@@ -525,6 +526,9 @@
         {:meta m})
       (when (traversal/children? root)
         {:children (mapv tree (traversal/children root))})))))
+
+(defn stages []
+  (traversal/children top-level))
 
 (defn stage-of [component]
   (some-> component .getScene .getWindow))
