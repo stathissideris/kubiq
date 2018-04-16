@@ -1,0 +1,3 @@
+{:deps
+ {me.raynes/fs {:mvn/version "1.4.6"}
+  hawk         {:mvn/version "0.2.11"}}}
