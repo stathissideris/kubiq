@@ -449,6 +449,14 @@
          row)))
      rows))))
 
+
+(defmethod set-field! [Object ::k/v-grow]
+  ([o _ priority]
+   (javafx.scene.layout.VBox/setVgrow o (get {:always    javafx.scene.layout.Priority/ALWAYS
+                                              :never     javafx.scene.layout.Priority/NEVER
+                                              :sometimes javafx.scene.layout.Priority/SOMETIMES} priority))))
+
+
 ;;;;;;;;;;;;;;;;;;;
 ;;;;; "React" ;;;;;
 ;;;;;;;;;;;;;;;;;;;
