@@ -185,7 +185,9 @@
               util/kebab->camel
               util/capitalize-first
               (str "set"))
-         (object-array [value]))
+         (if (vector? value)
+           (object-array value)
+           (object-array [value])))
         object
         (catch Exception _
           (let [s! (setter (class object) field)]
