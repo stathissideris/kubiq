@@ -600,7 +600,20 @@
 
 (def font text/font)
 (def span text/span)
-(def text-flow text/text-flow)
+
+(defn text-flow
+  ([]
+   (TextFlow.))
+  ([nodes]
+   (text-flow nil nodes))
+  ([attr nodes]
+   (let [content (remove nil? nodes)
+         tf      (if (empty? content)
+                   (TextFlow.)
+                   (TextFlow. (into-array Node (map text/text content))))]
+     (if attr
+       (set-fields! tf attr)
+       tf))))
 
 ;;;;;;;;;;;;;;;;;;;; color ;;;;;;;;;;;;;;;;;;;;
 

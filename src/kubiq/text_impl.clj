@@ -12,10 +12,10 @@
 
 (defn font-defaults []
   (let [default-font (Font/getDefault)]
-    {::family  (.getFamily default-font)
-     ::weight  FontWeight/NORMAL
-     ::posture FontPosture/REGULAR
-     ::size    (.getSize default-font)}))
+    {::k/family  (.getFamily default-font)
+     ::k/weight  FontWeight/NORMAL
+     ::k/posture FontPosture/REGULAR
+     ::k/size    (.getSize default-font)}))
 
 (def font-weight-map
   {"black"       FontWeight/BLACK
@@ -32,11 +32,11 @@
   {"italic"  FontPosture/ITALIC
    "regular" FontPosture/REGULAR})
 
-(defn font [{:keys [family weight posture size] :as options}]
+(defn font [{::k/keys [family weight posture size] :as options}]
   (let [options (cond-> options
-                  weight  (assoc ::weight (font-weight-map weight))
-                  posture (assoc ::posture (font-posture-map posture)))
-        {:keys [family weight posture size]}
+                  weight  (assoc ::k/weight (font-weight-map weight))
+                  posture (assoc ::k/posture (font-posture-map posture)))
+        {::k/keys [family weight posture size]}
         (merge (font-defaults) options)]
     (Font/font family weight posture size)))
 
@@ -47,7 +47,7 @@
    :right   TextAlignment/RIGHT})
 
 (defn span [{:keys [underline strike align fill] :as attr} content]
-  (let [font-attr (not-empty (select-keys attr [:family :weight :posture :size]))
+  (let [font-attr (not-empty (select-keys attr [::k/family ::k/weight ::k/posture ::k/size]))
         f         (when font-attr (font font-attr))
         text
         (doto (javafx.scene.text.Text. content)
@@ -70,15 +70,8 @@
       (let [content (apply str (remove nil? content))]
         (condp = tag
           :span (span attr content)
-          :b    (span {::weight "bold"} content)
-          :i    (span {::posture "italic"} content)
-          :u    (span {::underline true} content)
-          :del  (span {::strike true} content))))))
-
-(defn text-flow
-  ([]
-   (TextFlow.))
-  ([nodes]
-   (if (empty? nodes)
-     (TextFlow.)
-     (TextFlow. (into-array Node (map text (remove nil? nodes)))))))
+          :b    (span {::k/weight "bold"} content)
+          :i    (span {::k/posture "italic"} content)
+          :u    (span {::k/underline true} content)
+          :del  (span {::k/strike true} content)
+          :mono (span {::k/family "monospace"} content))))))
