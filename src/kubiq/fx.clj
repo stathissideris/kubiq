@@ -53,16 +53,14 @@
 
 (defn run-later! [fun]
   (let [p (promise)]
-    (if (on-fx-thread?)
-      (deliver p (fun))
-      (Platform/runLater
-       (fn []
-         (try
-           (deliver p (fun))
-           (catch Exception e
-             (.printStackTrace e)
-             (deliver p e)
-             (throw e))))))
+    (Platform/runLater
+     (fn []
+       (try
+         (deliver p (fun))
+         (catch Exception e
+           (.printStackTrace e)
+           (deliver p e)
+           (throw e)))))
     p))
 
 (defn event-handler [fun]
