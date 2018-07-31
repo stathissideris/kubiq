@@ -48,20 +48,38 @@
 (defn on-fx-thread? []
   (Platform/isFxApplicationThread))
 
+
 (defn thread-probe [label]
   (when (on-fx-thread?) (prn '!!!ON-FX-THREAD label)))
 
+
+(comment
+  (defn run-later! [fun]
+    (let [p (promise)]
+      (Platform/runLater
+       (fn []
+         (try
+           (deliver p (fun))
+           (catch Exception e
+             (.printStackTrace e)
+             (deliver p e)
+             (throw e)))))
+      p)))
+
+
 (defn run-later! [fun]
   (let [p (promise)]
-    (Platform/runLater
-     (fn []
-       (try
-         (deliver p (fun))
-         (catch Exception e
-           (.printStackTrace e)
-           (deliver p e)
-           (throw e)))))
+    (if (on-fx-thread?)
+      (deliver p (fun))
+      (Platform/runLater
+       (fn []
+         (try
+           (deliver p (fun))
+           (catch Exception e
+             (.printStackTrace e)
+             (deliver p e))))))
     p))
+
 
 (defn event-handler [fun]
   (reify EventHandler
