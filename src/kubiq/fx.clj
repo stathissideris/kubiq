@@ -142,7 +142,9 @@
   ([selector]
    (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
   ([component selector]
-   (into #{} (-> component (.lookupAll selector) .toArray))))
+   (if (instance? javafx.scene.Scene component)
+     (lookup (.getRoot component) selector)
+     (into #{} (-> component (.lookupAll selector) .toArray)))))
 
 (defn set-field!-dispatch
   [o field _] [(class o) field])
