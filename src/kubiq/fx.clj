@@ -134,13 +134,59 @@
 (defn bounds-in-parent [component]
   (parse-bbox (.getBoundsInParent component)))
 
+;;;;;;;;;;;;;;;;;;;;;
+;;;;; traversal ;;;;;
+;;;;;;;;;;;;;;;;;;;;;
+
+(def top-level (kubiq.traversal_impl.TopLevel.))
+
+(defn- safe-id [component]
+  (try (.getId component) (catch Exception _ nil)))
+
+(defn tree-seq [root]
+  (clojure.core/tree-seq traversal/children? traversal/children root))
+
+(defn find-by-id
+  ([id]
+   (find-by-id top-level id))
+  ([root id]
+   (->> (tree-seq root)
+        (filter #(= id (safe-id %)))
+        first)))
+
+(defn- safe-style-class [component]
+  (try (set (.getStyleClass component))
+       (catch Exception _ #{})))
+
+(defn find-by-style-class [root clazz]
+  (->> (tree-seq root)
+       (filter #(get (safe-style-class %) clazz))))
+
+(defn tree
+  ([]
+   (tree top-level))
+  ([root]
+   (when root
+     (merge
+      {:component root}
+      (when-let [m (not-empty (util/meta root))]
+        {:meta m})
+      (when (traversal/children? root)
+        {:children (mapv tree (traversal/children root))})))))
+
+(defn stages []
+  (traversal/children top-level))
+
+(defn stage-of [component]
+  (some-> component .getScene .getWindow))
+
 ;;;;;;;;;;;;;;;;;;;;
 ;;;;; mutation ;;;;;
 ;;;;;;;;;;;;;;;;;;;;
 
 (defn lookup
   ([selector]
-   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (StageHelper/getStages))))
+   (apply set/union (map #(lookup (-> % .getScene .getRoot) selector) (traversal/children top-level))))
   ([component selector]
    (cond (instance? javafx.scene.Scene component) (lookup (.getRoot component) selector)
          (instance? javafx.stage.Stage component) (lookup (.getScene component) selector)
@@ -179,7 +225,7 @@
   (when object
     (cond
       (and (= object ::k/top-level) (= field ::k/children))
-      (StageHelper/getStages)
+      (traversal/children top-level)
 
       (string? object)
       (let [objs (lookup object)]
@@ -248,7 +294,7 @@
 
 (defn fget [object field]
   (cond (and (= object ::k/top-level) (= field ::k/children))
-        (StageHelper/getStages)
+        (traversal/children top-level)
 
         (string? object)
         (let [objs (lookup object)]
@@ -311,7 +357,7 @@
 (defn insert-in! [root path value]
   (if (and (= root ::k/top-level) (= 2 (count path)))
     (do
-      (.add (StageHelper/getStages) (last path) value)
+      (.add (traversal/children top-level) (last path) value)
       (.show value))
     (let [index       (last path)
           parent-path (butlast path)
@@ -320,7 +366,7 @@
 
 (defn remove-in! [root path]
   (if (and (= root ::k/top-level) (= 2 (count path)))
-    (let [stages (StageHelper/getStages)
+    (let [stages (traversal/children top-level)
           value  (.get stages (last path))]
       (.remove stages value)
       (.close value))
@@ -514,52 +560,6 @@
               :dissoc (fset-in! root path nil)
               :insert (insert-in! root path (make value))
               :delete (remove-in! root path))))))))
-
-;;;;;;;;;;;;;;;;;;;;;
-;;;;; traversal ;;;;;
-;;;;;;;;;;;;;;;;;;;;;
-
-(def top-level (kubiq.traversal_impl.TopLevel.))
-
-(defn- safe-id [component]
-  (try (.getId component) (catch Exception _ nil)))
-
-(defn tree-seq [root]
-  (clojure.core/tree-seq traversal/children? traversal/children root))
-
-(defn find-by-id
-  ([id]
-   (find-by-id top-level id))
-  ([root id]
-   (->> (tree-seq root)
-        (filter #(= id (safe-id %)))
-        first)))
-
-(defn- safe-style-class [component]
-  (try (set (.getStyleClass component))
-       (catch Exception _ #{})))
-
-(defn find-by-style-class [root clazz]
-  (->> (tree-seq root)
-       (filter #(get (safe-style-class %) clazz))))
-
-(defn tree
-  ([]
-   (tree top-level))
-  ([root]
-   (when root
-     (merge
-      {:component root}
-      (when-let [m (not-empty (util/meta root))]
-        {:meta m})
-      (when (traversal/children? root)
-        {:children (mapv tree (traversal/children root))})))))
-
-(defn stages []
-  (traversal/children top-level))
-
-(defn stage-of [component]
-  (some-> component .getScene .getWindow))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;;; convenience functions ;;;;;
