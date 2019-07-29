@@ -1,6 +1,6 @@
 (ns kubiq.traversal-impl
   (:import [com.sun.javafx.stage StageHelper]
-           [javafx.stage Stage]
+           [javafx.stage Window]
            [javafx.scene Scene Group]
            [javafx.scene.layout Pane GridPane]
            [javafx.scene.control SplitPane ScrollPane TabPane Tab]))
@@ -13,13 +13,13 @@
 (deftype TopLevel []
   Parent
   (children [this]
-    (distinct (seq (StageHelper/getStages))))
+    (distinct (seq (Window/getWindows))))
   (children? [this]
     (< 0 (count (children this))))
   (child [this index]
     (.get (children this) index)))
 
-(extend-type Stage
+(extend-type Window
   Parent
   (children [this] [(.getScene this)])
   (children? [this] true)
