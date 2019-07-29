@@ -1,4 +1,5 @@
-(ns kubiq)
+(ns kubiq
+  (:import [javafx.embed.swing JFXPanel]))
 
 (def force-toolkit-init-for-compilation
   (when *compile-files*

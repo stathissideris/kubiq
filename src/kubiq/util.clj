@@ -21,7 +21,7 @@
            (subs s 1)))))
 
 (defn resource [filename]
-  (-> Object (.getResource filename)))
+  (-> clojure.main (.getResource filename)))
 
 (defn resource->external-form [x]
   (if (str/starts-with? x "file:")
