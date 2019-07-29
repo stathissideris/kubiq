@@ -1,5 +1,6 @@
 {:deps
  {org.openjfx/javafx-controls {:mvn/version "12.0.1"}
   org.openjfx/javafx-swing    {:mvn/version "12.0.1"}
+  org.openjfx/javafx-web      {:mvn/version "12.0.1"}
   me.raynes/fs                {:mvn/version "1.4.6"}
   hawk                        {:mvn/version "0.2.11"}}}
