@@ -4,5 +4,6 @@
   org.openjfx/javafx-graphics  {:mvn/version "12"}
   org.openjfx/javafx-media     {:mvn/version "12"}
   org.openjfx/javafx-web       {:mvn/version "12"}
+  org.openjfx/javafx-swing     {:mvn/version "12"}
   clj-commons/fs               {:mvn/version "1.5.1"}
   hawk                         {:mvn/version "0.2.11"}}}
